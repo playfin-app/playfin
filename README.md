@@ -34,7 +34,7 @@ Playfin is an independent, open-source client for [Jellyfin](https://jellyfin.or
 ### Homebrew
 
 ```bash
-brew tap <github-user>/tap
+brew tap playfin-app/tap
 brew install --cask playfin
 ```
 
@@ -42,7 +42,7 @@ Updates: `brew upgrade --cask playfin`.
 
 ### Manual download
 
-Download `Playfin-macOS.zip` from the GitHub Releases page, unzip it and drag `Playfin.app` to `/Applications`.
+Download `Playfin-macOS.zip` from the [GitHub Releases page](https://github.com/playfin-app/playfin/releases), unzip it and drag `Playfin.app` to `/Applications`.
 
 ### First launch (Gatekeeper)
 

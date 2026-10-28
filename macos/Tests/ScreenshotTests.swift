@@ -30,33 +30,70 @@ final class ScreenshotTests: XCTestCase {
 
     // MARK: Demo data (no server: images drawn and put in the memory cache)
 
+    /// Demo artwork: a sky gradient, a glowing sun and layered mountains (no real poster is used).
     private func demoImage(_ seed: Int, size: CGSize, title: String) -> NSImage {
         let palette: [(NSColor, NSColor)] = [
-            (.systemBlue, .systemPurple), (.systemOrange, .systemRed), (.systemTeal, .systemIndigo),
-            (.systemPink, .systemPurple), (.systemGreen, .systemTeal), (.systemYellow, .systemOrange)
+            (.systemIndigo, .systemOrange), (.systemPurple, .systemPink), (.systemTeal, .systemBlue),
+            (.systemBlue, .systemPurple), (.systemRed, .systemOrange), (.systemGreen, .systemTeal)
         ]
-        let (a, b) = palette[seed % palette.count]
+        let (top, bottom) = palette[seed % palette.count]
+        let rect = NSRect(origin: .zero, size: size)
         let image = NSImage(size: size)
         image.lockFocus()
-        NSGradient(starting: a.blended(withFraction: 0.35, of: .black) ?? a, ending: b.blended(withFraction: 0.55, of: .black) ?? b)?
-            .draw(in: NSRect(origin: .zero, size: size), angle: -60)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: size.width / 9, weight: .heavy),
-            .foregroundColor: NSColor.white.withAlphaComponent(0.85)
-        ]
-        let text = NSAttributedString(string: title, attributes: attributes)
-        text.draw(at: NSPoint(x: size.width * 0.08, y: size.height * 0.1))
+        NSGradient(starting: bottom.blended(withFraction: 0.2, of: .black) ?? bottom,
+                   ending: top.blended(withFraction: 0.7, of: .black) ?? top)?.draw(in: rect, angle: 90)
+
+        // Sun with a soft glow.
+        let sun = NSPoint(x: size.width * (0.3 + CGFloat(seed % 4) * 0.13), y: size.height * 0.52)
+        let radius = min(size.width, size.height) * 0.14
+        NSGradient(colors: [NSColor.white.withAlphaComponent(0.55), bottom.withAlphaComponent(0)])?
+            .draw(fromCenter: sun, radius: 0, toCenter: sun, radius: radius * 3.5, options: [])
+        NSColor(calibratedWhite: 1, alpha: 0.9).setFill()
+        NSBezierPath(ovalIn: NSRect(x: sun.x - radius, y: sun.y - radius, width: radius * 2, height: radius * 2)).fill()
+
+        // Three mountain ranges, darker towards the front.
+        for layer in 0..<3 {
+            let path = NSBezierPath()
+            let base = size.height * (0.42 - CGFloat(layer) * 0.12)
+            path.move(to: NSPoint(x: 0, y: 0))
+            path.line(to: NSPoint(x: 0, y: base))
+            let peaks = 5 + layer
+            for peak in 0...peaks {
+                let x = size.width * CGFloat(peak) / CGFloat(peaks)
+                let wave = sin(Double(peak * 7 + seed * 3 + layer * 5))
+                path.line(to: NSPoint(x: x, y: base + size.height * (0.08 + 0.07 * CGFloat(wave))))
+            }
+            path.line(to: NSPoint(x: size.width, y: 0))
+            path.close()
+            (top.blended(withFraction: 0.55 + CGFloat(layer) * 0.15, of: .black) ?? top).setFill()
+            path.fill()
+        }
+
+        if !title.isEmpty {
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: size.width / 10, weight: .heavy),
+                .foregroundColor: NSColor.white.withAlphaComponent(0.92)
+            ]
+            NSAttributedString(string: title, attributes: attributes)
+                .draw(at: NSPoint(x: size.width * 0.08, y: size.height * 0.06))
+        }
         image.unlockFocus()
         return image
     }
+
+    private let demoOverviews = [
+        "A cartographer follows an old map to the edge of the known world, where the sky meets a sea of mountains.",
+        "Two siblings return to their mountain village and uncover the secret their family kept for forty years.",
+        "When the last lighthouse keeper disappears, a young pilot must guide the night ships home.",
+        "A team of climbers races a winter storm to reach a summit no one has seen since the war."
+    ]
 
     private func demoMovie(_ index: Int, type: String = "Movie", name: String, series: String? = nil, played: Bool = false,
                            position: Int64 = 0) -> Movie {
         var movie = Movie(
             id: "demo-\(index)", name: name, sortName: nil, productionYear: Int32(2010 + index % 14), premiereDate: nil,
             runTimeTicks: 72_000_000_000, container: "mkv",
-            overview: "A demo story to check the layout: title, multi-line summary, "
-                + "buttons and rows. No data comes from a real server.",
+            overview: demoOverviews[index % demoOverviews.count],
             communityRating: 7.4, criticRating: nil, officialRating: "PG-13", genres: ["Adventure", "Drama"],
             dateCreated: nil, people: [], userData: UserData(playbackPositionTicks: position, played: played, playedPercentage: nil),
             seriesName: series, seriesId: series == nil ? nil : "demo-series", seasonId: nil, seasonName: nil,
@@ -71,12 +108,13 @@ final class ScreenshotTests: XCTestCase {
     private func seedImages(model: AppModel, items: [Movie]) {
         for (index, item) in items.enumerated() {
             for (kind, size) in [(ImageKind.primary, CGSize(width: 300, height: 450)), (.backdrop, CGSize(width: 1280, height: 720))] {
-                for height: UInt32 in [360, 400, 450, 650, 1080, 1440] {
+                for height: UInt32 in [240, 360, 400, 450, 650, 1080, 1440] {
                     if let url = model.imageURL(item, kind, height: height) {
-                        ImageCache.shared.store(image: demoImage(index, size: size, title: item.displayTitle), forKey: ImageCache.shared.cacheKey(for: url))
+                        let title = kind == .primary ? item.displayTitle : ""
+                        ImageCache.shared.store(image: demoImage(index, size: size, title: title), forKey: ImageCache.shared.cacheKey(for: url))
                     }
                     if let url = model.episodeThumbnailURL(item, height: height) {
-                        ImageCache.shared.store(image: demoImage(index + 2, size: CGSize(width: 640, height: 360), title: item.name),
+                        ImageCache.shared.store(image: demoImage(index + 2, size: CGSize(width: 640, height: 360), title: ""),
                                                 forKey: ImageCache.shared.cacheKey(for: url))
                     }
                 }
@@ -105,15 +143,15 @@ final class ScreenshotTests: XCTestCase {
 
         try render(
             NavigationStack { HomeView() }.environment(model),
-            size: CGSize(width: 1280, height: 860), name: "check-home", to: dir
+            size: CGSize(width: 1280, height: 860), name: "home", to: dir
         )
         try render(
             NavigationStack { MovieDetailView(movie: movies[0]) }.environment(model),
-            size: CGSize(width: 1280, height: 860), name: "check-movie", to: dir
+            size: CGSize(width: 1280, height: 860), name: "movie", to: dir
         )
         try render(
             NavigationStack { DownloadsView() }.environment(model),
-            size: CGSize(width: 1000, height: 600), name: "check-downloads", to: dir
+            size: CGSize(width: 1000, height: 600), name: "downloads", to: dir
         )
 
         // Player: controls over an image (the video), with tracks and position.
@@ -136,7 +174,7 @@ final class ScreenshotTests: XCTestCase {
                     .padding(.trailing, 32).padding(.bottom, 200) }
             }
             .environment(model),
-            size: CGSize(width: 1280, height: 720), name: "check-player", to: dir
+            size: CGSize(width: 1280, height: 720), name: "player", to: dir
         )
 
         // Player windows: tracks (language page) and options.
@@ -171,7 +209,7 @@ final class ScreenshotTests: XCTestCase {
         model.refreshProfiles()
         try render(
             ProfilesSettingsTab().environment(model).frame(width: 720, height: 760),
-            size: CGSize(width: 720, height: 760), name: "check-settings-profiles", to: dir
+            size: CGSize(width: 720, height: 760), name: "settings-profiles", to: dir
         )
     }
 

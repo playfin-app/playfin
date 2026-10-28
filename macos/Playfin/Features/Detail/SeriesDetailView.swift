@@ -123,14 +123,21 @@ struct SeriesDetailView: View {
         }
     }
 
+    /// "Series · 2008 · Drama · 5 seasons · TV-14": the pieces of information that are known.
+    private var metadataParts: [String] {
+        var parts = ["Series"]
+        if let year = currentSeries.productionYear { parts.append(String(year)) }
+        parts.append(contentsOf: currentSeries.genres.prefix(2))
+        if !seasonsList.isEmpty {
+            parts.append(seasonsList.count > 1 ? "\(seasonsList.count) seasons" : "1 season")
+        }
+        if let rating = currentSeries.officialRating, !rating.isEmpty { parts.append(rating) }
+        return parts
+    }
+
     private var metadataRow: some View {
         HStack(spacing: 8) {
-            let parts = ["Series"]
-                + [currentSeries.productionYear.map(String.init)].compactMap { $0 }
-                + currentSeries.genres.prefix(2)
-                + (seasonsList.isEmpty ? [] : [seasonsList.count > 1 ? "\(seasonsList.count) seasons" : "1 season"])
-                + [currentSeries.officialRating].compactMap { $0 }.filter { !$0.isEmpty }
-            ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
+            ForEach(Array(metadataParts.enumerated()), id: \.offset) { index, part in
                 if index > 0 { Text("·").foregroundStyle(.white.opacity(0.5)) }
                 Text(part).foregroundStyle(.white.opacity(0.85))
             }

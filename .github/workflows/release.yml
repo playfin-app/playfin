@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-15
+    runs-on: macos-26
     env:
       # Developer ID signing and notarisation: leave empty as long as there is no Apple Developer account.
       # Then: import the certificate into the runner's keychain and fill in these two secrets.

@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+          components: clippy, rustfmt
+
+      - name: Install macOS tooling
+        run: |
+          brew install xcodegen gitleaks swiftlint
+
+      - name: Build XCFramework & Bindings
+        run: ./scripts/build-xcframework.sh
+
+      - name: Run Test Suite
+        run: ./scripts/test-all.sh

@@ -1,0 +1,17 @@
+# Build artifacts
+build/
+core/target/
+macos/Generated/
+macos/PlayfinCore.xcframework/
+
+# Xcode / macOS
+.DS_Store
+*.xcuserstate
+xcuserdata/
+DerivedData/
+
+# Reviews
+.reviews/
+
+# Internal notes and reports (kept locally, never published)
+private/

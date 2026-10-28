@@ -1,0 +1,7 @@
+# False positives: image cache keys in the tests (fictitious identifiers, not secrets).
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fictitious image cache keys in the tests"
+paths = ['''macos/Tests/ImageCacheTests\.swift''']

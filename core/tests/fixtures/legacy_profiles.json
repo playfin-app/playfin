@@ -1,0 +1,24 @@
+[
+  {
+    "serverId": "srv-legacy-uuid-1",
+    "serverName": "Legacy Server",
+    "userId": "user-uuid-1",
+    "userName": "Alice",
+    "userAvatarTag": null,
+    "addresses": [
+      {
+        "url": "http://192.0.2.10:8096",
+        "label": "Local LAN",
+        "priority": 1,
+        "isLocal": true
+      },
+      {
+        "url": "https://jellyfin.example.com",
+        "label": "Remote WAN",
+        "priority": 2,
+        "isLocal": false
+      }
+    ],
+    "isPrimary": true
+  }
+]

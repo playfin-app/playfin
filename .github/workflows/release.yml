@@ -1,0 +1,77 @@
+name: Release
+
+# One version = one tag "vX.Y.Z". The workflow tests, builds the universal app (arm64 + x86_64),
+# publishes the zip in a GitHub release and updates the cask of the Homebrew tap.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    env:
+      # Developer ID signing and notarisation: leave empty as long as there is no Apple Developer account.
+      # Then: import the certificate into the runner's keychain and fill in these two secrets.
+      SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
+      NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+          components: clippy, rustfmt
+
+      - name: Tools
+        run: brew install xcodegen gitleaks swiftlint
+
+      - name: Tests
+        run: |
+          ./scripts/build-xcframework.sh
+          ./scripts/test-all.sh
+
+      - name: Build the universal app
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: ./scripts/package-release.sh
+
+      - name: Check the architectures
+        run: lipo -archs build/Release/Playfin.app/Contents/MacOS/Playfin | grep -q "x86_64 arm64"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            build/Release/Playfin-macOS.zip build/Release/Playfin-macOS.zip.sha256 \
+            --title "Playfin ${{ steps.version.outputs.version }}" \
+            --notes "See the README for installation (Homebrew) and the first launch." \
+            --verify-tag
+
+      - name: Update the cask of the Homebrew tap
+        # The tap is a "homebrew-tap" repository of the same owner; HOMEBREW_TAP_TOKEN must be able to write to it.
+        if: ${{ env.TAP_TOKEN != '' }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA="$(cat build/Release/Playfin-macOS.zip.sha256)"
+          # Token passed through the HTTP header (never in the URL nor in the logs).
+          AUTH="$(printf 'x-access-token:%s' "$TAP_TOKEN" | base64)"
+          git -c http.extraheader="AUTHORIZATION: basic ${AUTH}" clone "https://github.com/${{ github.repository_owner }}/homebrew-tap.git" tap
+          ./scripts/update-cask.sh "$VERSION" "$SHA" "${{ github.repository }}" tap/Casks/playfin.rb
+          cd tap
+          git config user.name "playfin-release"
+          git config user.email "playfin-release@users.noreply.github.com"
+          git add Casks/playfin.rb
+          git commit -m "playfin ${VERSION}"
+          git -c http.extraheader="AUTHORIZATION: basic ${AUTH}" push

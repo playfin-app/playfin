@@ -1,0 +1,43 @@
+# .swiftlint.yml
+# SwiftLint configuration for Playfin
+
+opt_in_rules:
+  - force_unwrapping
+  - empty_count
+  - redundant_nil_coalescing
+  - fatal_error_message
+
+disabled_rules:
+  - identifier_name
+  - type_body_length
+  - file_length
+  - function_body_length
+  - cyclomatic_complexity
+  - large_tuple
+  - trailing_comma
+  - implicit_optional_initialization
+  - function_parameter_count
+
+included:
+  - macos/Playfin
+
+excluded:
+  - core
+  - build
+  - .build
+  - DerivedData
+  - macos/DerivedData
+  - macos/Playfin.xcodeproj
+  - macos/Tests
+
+line_length:
+  warning: 160
+  error: 250
+  ignores_comments: true
+  ignores_urls: true
+
+force_unwrapping:
+  severity: error
+
+force_cast:
+  severity: error

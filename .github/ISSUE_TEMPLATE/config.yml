@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Jellyfin server questions
+    url: https://jellyfin.org/docs/
+    about: Questions about the server itself belong to the Jellyfin project.

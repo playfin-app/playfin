@@ -158,20 +158,22 @@ final class FocalPointTests: XCTestCase {
         // Face in the upper part of the image: the image goes down so the face lands at 36 % of the banner.
         let top = FocalPoint.offset(subject: CGPoint(x: 0.5, y: 0.3), imageSize: size, frame: frame, target: CGPoint(x: 0.5, y: 0.36))
         XCTAssertEqual(top.width, 0, "no horizontal room: no horizontal shift")
-        XCTAssertEqual(top.height, 0.36 * 480 - ((480 - 675) / 2 + 0.3 * 675), accuracy: 0.01)
+        let imageTop: CGFloat = (480 - 675) / 2
+        let expected: CGFloat = 0.36 * 480 - (imageTop + 0.3 * 675)
+        XCTAssertEqual(top.height, expected, accuracy: 0.01)
         XCTAssertGreaterThan(top.height, 0)
 
         // Subject at the very top: the shift stops at the edge (never a strip of background).
         let edge = FocalPoint.offset(subject: CGPoint(x: 0.5, y: 0), imageSize: size, frame: frame, target: CGPoint(x: 0.5, y: 0.9))
-        XCTAssertEqual(edge.height, (675 - 480) / 2, accuracy: 0.01)
+        XCTAssertEqual(edge.height, CGFloat(675 - 480) / 2, accuracy: 0.01)
         let bottom = FocalPoint.offset(subject: CGPoint(x: 0.5, y: 1), imageSize: size, frame: frame, target: CGPoint(x: 0.5, y: 0))
-        XCTAssertEqual(bottom.height, -(675 - 480) / 2, accuracy: 0.01)
+        XCTAssertEqual(bottom.height, -CGFloat(675 - 480) / 2, accuracy: 0.01)
     }
 
     func testTallFramesCropTheWidth() {
         let size = FocalPoint.fillSize(aspectRatio: 16 / 9, frame: CGSize(width: 400, height: 600))
         XCTAssertEqual(size.height, 600)
-        XCTAssertEqual(size.width, 600 * 16 / 9, accuracy: 0.01)
+        XCTAssertEqual(size.width, CGFloat(600) * 16 / 9, accuracy: 0.01)
     }
 
     func testDetectionFindsASubjectInTheTopRight() throws {

@@ -153,7 +153,8 @@ final class AppModel {
     /// The movies featured at the top of the home: first those in progress, then the new releases.
     var heroMovies: [Movie] {
         var seen = Set<String>()
-        return Array((resume.prefix(3) + nextUp.prefix(2) + latest).filter { seen.insert($0.id).inserted }.prefix(5))
+        let candidates: [Movie] = Array(resume.prefix(3)) + Array(nextUp.prefix(2)) + latest
+        return Array(candidates.filter { seen.insert($0.id).inserted }.prefix(5))
     }
 
     /// Disk cache folder (the system may empty it: this is only a convenience).

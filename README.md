@@ -1,80 +1,85 @@
 # Playfin
 
-**A fast, native macOS client for Jellyfin.**
-
-Playfin is an independent, open-source client for [Jellyfin](https://jellyfin.org) servers. It is not affiliated with or endorsed by the Jellyfin project. The interface is inspired by Plex on TVs: a big visual at the top, rows of posters, few screens, and playback one click away.
-
-> The interface is in English (see `docs/decisions/0011-final-name-language-and-distribution.md`).
+**A fast, native macOS app for watching your Jellyfin library.**
 
 ![Home](docs/screenshots/home.png)
 
-*Screenshots are rendered from the app's views with demo data (`ScreenshotTests`), not taken from a real server.*
+Playfin connects to your [Jellyfin](https://jellyfin.org) server and lets you browse and play your movies and shows like you would on a TV: a large artwork at the top, rows of posters below, and playback one click away. It is an independent open-source project, not affiliated with the Jellyfin team.
 
-## Features
+## What it does
 
-- **Instant start**: Home, libraries, seasons and episodes show from the local cache at once, then refresh in place.
-- **Plays almost anything without transcoding**: embedded mpv (LGPL build) with VideoToolbox hardware decoding, precise seeking, subtitles lifted above the controls, audio and subtitle menus grouped by language, tracks remembered per series, "Skip intro / credits" (server segments, Jellyfin 10.10+), next-episode card and auto-play.
-- **Several addresses per server**: home and remote addresses are probed in parallel; the app keeps the best one that answers with the right server ID, and switches when the network changes. You can reorder, test or force an address.
-- **Several profiles**: users and servers in the Profiles menu (⌃⌘1…9) and in Settings, each with its own cache, Keychain token and downloads.
-- **Downloads and offline**: a segmented multi-connection downloader written in Rust (aria2-style) with resume after quit or crash, ETag check, address switching, retries, bandwidth limit and a free-space check. Downloaded items browse and play without the server, and playback positions made offline are synced when the server comes back.
-- **Search across all libraries**, keyboard shortcuts (⇧⌘/ lists them), Settings (⌘,) for playback, player cache, downloads, storage and diagnostics.
+**It opens instantly.** Your home screen, libraries and episodes are kept in a local cache, so they appear right away and refresh quietly in the background.
+
+**It plays almost anything.** Playback uses mpv with hardware decoding, so most files play directly without the server having to convert them. HDR10 and HLG are shown in real HDR on screens that support it, and 5.1 / 7.1 sound can go straight to your amplifier. You also get audio and subtitle menus sorted by language, adjustable subtitles, "Skip intro" and "Skip credits" buttons, automatic next episode, and picture in picture.
+
+**It fits in with macOS.** The play/pause keys and the Now Playing widget control the player, and most actions have a keyboard shortcut (press ⇧⌘/ to see them all).
+
+**It works at home and away.** You can give a server several addresses, for example one for your home network and one for outside. Playfin tries them all and uses the one that answers, and switches by itself when you change networks.
+
+**It works offline.** Download a movie or a whole season and watch it without a connection. Downloads resume after a crash or a restart, and what you watched offline is synced to the server once you are back online.
+
+**It handles several people.** Each profile has its own server, account, cache and downloads. You can switch between them from the Profiles menu.
+
+There is also search across all your libraries and a Favourites tab.
 
 | | |
 |---|---|
 | ![Movie](docs/screenshots/movie.png) | ![Player](docs/screenshots/player.png) |
 | ![Profiles](docs/screenshots/settings-profiles.png) | ![Player cache](docs/screenshots/settings-player-cache.png) |
 
+*The screenshots use demo data, not a real server.*
+
 ## Requirements
 
-- macOS 14 Sonoma or later, Apple silicon or Intel (universal app).
-- A Jellyfin server, version **10.9 or later** (10.10+ for "Skip intro"). Tested versions are listed in `docs/decisions/0009-tested-jellyfin-versions-and-localization.md`.
+- A Mac with macOS 14 Sonoma or later (Apple silicon or Intel).
+- A Jellyfin server, version 10.9 or later. "Skip intro" needs 10.10 or later.
 
 ## Install
 
-### Homebrew
+### With Homebrew
 
 ```bash
 brew tap playfin-app/tap
-brew trust playfin-app/tap   # recent Homebrew versions ask to trust third-party taps once
+brew trust playfin-app/tap
 brew install --cask playfin
 ```
 
-Updates: `brew upgrade --cask playfin`.
+The `trust` line is only needed once, on recent versions of Homebrew. To update later, run `brew upgrade --cask playfin`.
 
-### Manual download
+### By hand
 
-Download `Playfin-macOS.zip` from the [GitHub Releases page](https://github.com/playfin-app/playfin/releases), unzip it and drag `Playfin.app` to `/Applications`.
+Download `Playfin-macOS.zip` from the [Releases page](https://github.com/playfin-app/playfin/releases), unzip it and move `Playfin.app` to your Applications folder.
 
-### First launch (Gatekeeper)
+The app is not notarized by Apple yet, so macOS blocks it the first time you open it. To allow it, go to **System Settings → Privacy & Security** and click **Open Anyway**. Or run this in Terminal:
 
-Builds are signed ad hoc but not notarized (there is no paid Apple Developer account yet), so macOS blocks the first launch once:
+```bash
+xattr -dr com.apple.quarantine /Applications/Playfin.app
+```
 
-- **System Settings → Privacy & Security → Open Anyway**, or
-- in Terminal: `xattr -dr com.apple.quarantine /Applications/Playfin.app`
+Homebrew does this step for you.
 
-The Homebrew cask does this step for you.
+## Privacy
 
-## Build from source
+Playfin only talks to your own Jellyfin server. There are no analytics and no third-party services. Your login token is stored in the macOS Keychain and never appears in logs or diagnostic exports.
+
+## Building from source
+
+Playfin has two parts: a core written in Rust (`core/`) that handles the server, the cache and the downloads, and a SwiftUI app (`macos/`) on top of it. The two are connected with UniFFI.
 
 ```bash
 brew install xcodegen swiftlint gitleaks
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
-scripts/build-xcframework.sh   # Rust core + Swift bindings + Xcode project
-scripts/test-all.sh            # all checks: Rust and Swift tests, Clippy, fmt, SwiftLint, secrets, hosts
-scripts/package-release.sh     # universal, signed app and zip in build/Release
+scripts/build-xcframework.sh   # builds the Rust core and generates the Xcode project
+scripts/test-all.sh            # runs all tests and checks
+scripts/package-release.sh     # builds the final app in build/Release
 ```
 
-Architecture: a platform-independent Rust core (`core/`: API, auth, profiles and address selection, cache, downloads, offline sync, settings) exposed to Swift with UniFFI, a SwiftUI app (`macos/`), and mpv for decoding and rendering. Design decisions are in `docs/decisions/`.
-
-## Privacy
-
-- Your token is stored only in the macOS Keychain. It is never written to logs or to the diagnostics export.
-- The app talks only to your Jellyfin server. There is no analytics and no third-party service.
+The reasons behind the main technical choices are written down in [`docs/decisions/`](docs/decisions/).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and ideas are welcome through the issue templates.
+Bug reports and ideas are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
 
 ## Licence
 
-Playfin is released under the **Mozilla Public License 2.0** (`LICENSE`). It embeds mpv and FFmpeg in their LGPL build, linked dynamically; the full list of third-party components and licences is in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and in the app (Settings → About).
+Playfin is released under the [Mozilla Public License 2.0](LICENSE). It includes mpv and FFmpeg (LGPL build). The full list of third-party components is in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and in the app under Settings → About.

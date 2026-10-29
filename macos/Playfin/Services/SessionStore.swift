@@ -3,14 +3,17 @@ import Security
 
 /// Secure storage of the Jellyfin session in the macOS Keychain.
 /// Access tokens are never written in clear text on disk.
+///
+/// Opening the app reads a single Keychain entry, the token of the active profile: macOS asks once per entry when
+/// the app's signature changes (each new version), so nothing else is kept there.
 enum SessionStore {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var customService: String?
     private static var defaultService: String { AppPaths.keychainService }
     /// Old single entry, read only once to migrate to one entry per server and per user.
     private static let legacyAccount = "session"
-    /// Points to the active session (`serverId:userId`); contains no secret.
-    private static let activeAccount = "active"
+    /// Former Keychain entry of the active session pointer, read only once to migrate it to the preferences.
+    private static let legacyActiveAccount = "active"
 
     /// Lets an isolated Keychain service name be injected for the tests (Pitfall 8).
     static func setServiceName(_ service: String?) {
@@ -30,6 +33,12 @@ enum SessionStore {
         var serverId: String? = nil
         let userId: String
         let accessToken: String
+    }
+
+    /// The active session (`serverId:userId`). Contains no secret: in the preferences, not in the Keychain.
+    private static var activePointer: String? {
+        get { AppPaths.defaults.string(forKey: "Playfin_ActiveSession_\(service)") }
+        set { AppPaths.defaults.set(newValue, forKey: "Playfin_ActiveSession_\(service)") }
     }
 
     private static func query(account: String) -> [String: Any] {
@@ -101,7 +110,8 @@ enum SessionStore {
         let key = accountKey(serverId: info.serverId, userId: info.userId)
         // The tokens of the other profiles stay: one can switch between them without signing in again.
         // A token is only deleted by signing out of its profile (`delete(serverId:userId:)`).
-        guard write(data, account: key), write(Data(key.utf8), account: activeAccount) else { return false }
+        guard write(data, account: key) else { return false }
+        activePointer = key
         // The old entry is only deleted after the new one has been written successfully.
         SecItemDelete(query(account: legacyAccount) as CFDictionary)
         return true
@@ -117,22 +127,19 @@ enum SessionStore {
     static func setActive(serverId: String, userId: String) -> Bool {
         let key = accountKey(serverId: serverId, userId: userId)
         guard exists(account: key) else { return false }
-        return write(Data(key.utf8), account: activeAccount)
+        activePointer = key
+        return true
     }
 
     /// Signs a profile out: deletes its token (and the pointer if it was active).
     static func delete(serverId: String, userId: String) {
         let key = accountKey(serverId: serverId, userId: userId)
         SecItemDelete(query(account: key) as CFDictionary)
-        if let pointer = read(account: activeAccount), String(data: pointer, encoding: .utf8) == key {
-            SecItemDelete(query(account: activeAccount) as CFDictionary)
-        }
+        if activePointer == key { activePointer = nil }
     }
 
     static func load() -> SessionInfo? {
-        if let pointer = read(account: activeAccount),
-           let key = String(data: pointer, encoding: .utf8),
-           let data = read(account: key) {
+        if let key = activePointer ?? migratedActivePointer(), let data = read(account: key) {
             return decode(data)
         }
         // Migration: session saved before the per-server and per-user entry.
@@ -141,12 +148,24 @@ enum SessionStore {
         return info
     }
 
-    /// Sign-out: deletes the active session (and the old entry, if it still exists).
+    /// Pointer of an older version, still in the Keychain: moved to the preferences (once).
+    private static func migratedActivePointer() -> String? {
+        guard exists(account: legacyActiveAccount),
+              let data = read(account: legacyActiveAccount),
+              let key = String(data: data, encoding: .utf8)
+        else { return nil }
+        activePointer = key
+        SecItemDelete(query(account: legacyActiveAccount) as CFDictionary)
+        return key
+    }
+
+    /// Sign-out: deletes the active session (and the old entries, if they still exist).
     static func delete() {
-        if let pointer = read(account: activeAccount), let key = String(data: pointer, encoding: .utf8) {
+        if let key = activePointer {
             SecItemDelete(query(account: key) as CFDictionary)
         }
-        SecItemDelete(query(account: activeAccount) as CFDictionary)
+        activePointer = nil
+        SecItemDelete(query(account: legacyActiveAccount) as CFDictionary)
         SecItemDelete(query(account: legacyAccount) as CFDictionary)
 
         // Defensive cleanup of possible temporary files or obsolete keys

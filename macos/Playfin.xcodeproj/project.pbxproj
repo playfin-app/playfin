@@ -83,7 +83,6 @@
 		D1FCA971E896EC809D33998E /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69C979CA70350D1CB0DC0BBD /* ProfileStore.swift */; };
 		E53F8FE13425B2D97DF414CA /* ScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFF8B091E41AF4DD9D530DA /* ScreenshotTests.swift */; };
 		E75BB63AD6F7EF35B00A19F6 /* SessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A72BE815237B2884DD298016 /* SessionTests.swift */; };
-		E8453AD2A719F41397DAEA3F /* FocalPoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D2E3A2E548E2FAF10D93E59 /* FocalPoint.swift */; };
 		E96897E6197B43FA97D501DE /* OfflineBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BB4FAF1BB95C280E1F9016D /* OfflineBanner.swift */; };
 		ED1B9D6C0304E2DC05A95C25 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E6115F25CE8BE914170DD7C0 /* Security.framework */; };
 		ED5A96524368A4200A440B07 /* PosterCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008ECA86B80471B5F368DD3B /* PosterCard.swift */; };
@@ -176,7 +175,6 @@
 		84DF7F6FD6B7C3F904AB8FD6 /* AppModel+Library.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Library.swift"; sourceTree = "<group>"; };
 		88143C22CF105E73C3031A68 /* AsyncArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncArtwork.swift; sourceTree = "<group>"; };
 		8BE8F89103BF57A3BCDA0A78 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		8D2E3A2E548E2FAF10D93E59 /* FocalPoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocalPoint.swift; sourceTree = "<group>"; };
 		8DF722626618599050287CBB /* AppModel+Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Session.swift"; sourceTree = "<group>"; };
 		8FF2E9096F341F95A0721B39 /* Playfin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Playfin.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		905A0DC14604F5FE0CC6F809 /* GoBackMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoBackMonitor.swift; sourceTree = "<group>"; };
@@ -312,7 +310,6 @@
 				88143C22CF105E73C3031A68 /* AsyncArtwork.swift */,
 				6802BD36B7279ED1E6F744A1 /* BlurHashImage.swift */,
 				08A37E738B4B1C9D0DB04C55 /* Components.swift */,
-				8D2E3A2E548E2FAF10D93E59 /* FocalPoint.swift */,
 				905A0DC14604F5FE0CC6F809 /* GoBackMonitor.swift */,
 				FF51BF810752CD3446569F59 /* LoadingStateView.swift */,
 				C80758695A7C00D809709BF9 /* PageTransitions.swift */,
@@ -616,7 +613,6 @@
 				F93CFF9F1D075F6B9755F62F /* DownloadsModel.swift in Sources */,
 				A3D14757A0658DBD80230572 /* DownloadsView.swift in Sources */,
 				1F950CBF221B36B6D79F4B16 /* FavoritesView.swift in Sources */,
-				E8453AD2A719F41397DAEA3F /* FocalPoint.swift in Sources */,
 				98C74694AF1749E9B386618E /* GoBackMonitor.swift in Sources */,
 				28B75A4B4A274170E1EC4518 /* HomeView.swift in Sources */,
 				206858D62D938F2B45913F87 /* ImageCache.swift in Sources */,

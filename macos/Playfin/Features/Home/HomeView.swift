@@ -389,23 +389,10 @@ struct HeroBanner: View {
     let movies: [Movie]
     @State private var index = 0
     @State private var isHovered = false
-    /// Subject of each image (see `FocalPoint`), by item: the image is framed on it rather than on its centre.
-    @State private var framings: [String: FocalPoint.Framing] = [:]
     @Environment(\.isPageVisible) private var isPageVisible
     @Environment(\.pageMargins) private var margins
 
-    /// Where the subject goes: in the upper part (the bottom fades into the rows and holds the text), a little to the
-    /// right of the middle (the text is on the left).
-    private static let subjectTarget = CGPoint(x: 0.62, y: 0.36)
-
     private func backdropURL(_ movie: Movie) -> URL? { model.imageURL(movie, .backdrop, height: 1440) }
-
-    /// Analyses an image once and keeps its framing; the first time, the image glides to it.
-    private func loadFraming(_ movie: Movie) async {
-        guard framings[movie.id] == nil, let framing = await FocalPointCache.shared.framing(for: backdropURL(movie))
-        else { return }
-        withAnimation(Theme.Motion.hero) { framings[movie.id] = framing }
-    }
     @Environment(\.scenePhase) private var scenePhase
 
     /// About 70 % of the window, never under 400 pt: the image fills most of the screen, the first row shows below.
@@ -440,18 +427,21 @@ struct HeroBanner: View {
             .containerRelativeFrame(.vertical) { height, _ in Self.height(in: height) }
             .frame(maxWidth: .infinity)
             .overlay {
-                let framing = framings[movie.id] ?? FocalPointCache.shared.cachedFraming(for: backdropURL(movie))
                 AsyncArtwork(
                     url: backdropURL(movie),
                     blurHash: movie.backdropBlurHash,
                     targetBlurHashSize: CGSize(width: 64, height: 36),
-                    content: { image in FocusedFillImage(image: image, framing: framing, target: Self.subjectTarget) },
+                    content: { image in
+                        // Fills the banner, aligned on its top edge: what is cropped is the bottom, under the
+                        // gradient and the text (centred across when the window is narrow).
+                        image.resizable().scaledToFill()
+                            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
+                    },
                     placeholder: { Theme.Colors.background }
                 )
                 .id(movie.id)
                 .transition(.opacity)
             }
-            .task(id: movie.id) { await loadFraming(movie) }
             .clipped()
             // Gradient downwards to the app background (no seam with the rows)
             .overlay {
@@ -559,15 +549,13 @@ struct HeroBanner: View {
             .onHover { isHovered = $0 }
             // New titles (every 30 minutes): from the first one.
             .onChange(of: movieIds) { _, _ in index = 0 }
-            // Preloads the next image and its framing: the fade goes to a real image already framed, not to a
-            // BlurHash then a jump.
+            // Preloads the next image: the fade goes to the real image, not to a BlurHash then the image.
             .task(id: index) {
                 guard movies.count > 1 else { return }
                 let next = movies[(index + 1) % movies.count]
                 if let url = backdropURL(next) {
                     _ = try? await ImageCache.shared.loadImage(forKey: ImageCache.shared.cacheKey(for: url), from: url)
                 }
-                if let framing = await FocalPointCache.shared.framing(for: backdropURL(next)) { framings[next.id] = framing }
             }
             // No rotation (neither decoding nor fade) if the home is covered (opened page), during playback or with
             // the window inactive: the loop only runs while all hold, and restarts when they change (an environment

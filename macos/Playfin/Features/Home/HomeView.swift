@@ -53,7 +53,7 @@ struct HomeView: View {
     private func continueRow(_ title: String, items: [Movie]) -> some View {
         Shelf(title: title, cardWidth: Theme.Layout.continueWidth) {
             ForEach(items, id: \.id) { movie in
-                NavigationLink(value: Route.movie(movie.id)) {
+                RouteLink(value: Route.movie(movie.id)) {
                     ShelfCard(base: Theme.Layout.continueWidth) { ContinueCard(movie: movie, width: $0) }
                 }
                 .buttonStyle(CardButtonStyle())
@@ -65,7 +65,7 @@ struct HomeView: View {
         let ratio = Movie.commonCardAspectRatio(of: items)
         return Shelf(title: title, cardWidth: Theme.Layout.posterWidth) {
             ForEach(items, id: \.id) { movie in
-                NavigationLink(value: Route.movie(movie.id)) {
+                RouteLink(value: Route.movie(movie.id)) {
                     ShelfCard(base: Theme.Layout.posterWidth) {
                         PosterCard(movie: movie, imageHeight: 450, aspectRatio: ratio).frame(width: $0)
                     }
@@ -94,6 +94,7 @@ struct Shelf<Content: View>: View {
     @ViewBuilder let content: Content
     @StateObject private var scroller = ShelfScroller()
     @State private var rowWidth: CGFloat = 0
+    @Environment(\.isPageVisible) private var isPageVisible
 
     private static var spacing: CGFloat { 18 }
 
@@ -139,6 +140,7 @@ struct Shelf<Content: View>: View {
                 .onChange(of: geo.size.width) { _, width in rowWidth = width }
         })
         .onChange(of: fit, initial: true) { _, fit in scroller.page = fit.map { ($0.stride, $0.cardsPerRow) } }
+        .onChange(of: isPageVisible, initial: true) { _, visible in scroller.isActive = visible }
     }
 
     private func arrowButton(systemName: String, enabled: Bool, help: String, action: @escaping () -> Void) -> some View {
@@ -169,6 +171,8 @@ final class ShelfScroller: ObservableObject {
     /// Fitted rows (see `Shelf.cardWidth`): distance from one card to the next and cards per page. The arrows then
     /// move by whole pages and stop on a card edge.
     var page: (stride: CGFloat, cards: Int)?
+    /// False while the row's page is covered by another one: the wheel then goes to the page on top.
+    var isActive = true
 
     func attach(_ scrollView: NSScrollView) {
         guard self.scrollView !== scrollView else { return }
@@ -197,7 +201,7 @@ final class ShelfScroller: ObservableObject {
         guard wheelMonitor == nil else { return }
         wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             MainActor.assumeIsolated {
-                guard let self, let scrollView = self.scrollView, event.window === scrollView.window,
+                guard let self, self.isActive, let scrollView = self.scrollView, event.window === scrollView.window,
                       scrollView.bounds.contains(scrollView.convert(event.locationInWindow, from: nil)),
                       let delta = ShelfWheel.horizontalDelta(
                         deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY,
@@ -435,7 +439,7 @@ struct HeroBanner: View {
                         PlayButton(title: movie.resumeSeconds > 0 ? "Resume" : "Play") {
                             model.play(movie, fromStart: false)
                         }
-                        NavigationLink(value: Route.movie(movie.id)) {
+                        RouteLink(value: Route.movie(movie.id)) {
                             Label("Details", systemImage: "info.circle")
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(.white)
@@ -555,7 +559,7 @@ struct ContinueCard: View {
             Divider()
             WatchedMenuItems(movie: movie)
             Divider()
-            NavigationLink("Details", value: Route.movie(movie.id))
+            RouteLink("Details", value: Route.movie(movie.id))
         }
     }
 }

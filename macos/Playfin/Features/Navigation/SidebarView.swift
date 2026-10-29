@@ -17,7 +17,7 @@ struct SidebarView: View {
                 } icon: {
                     Image(systemName: "house.fill")
                 }
-                .tag(AppModel.SidebarSection.home)
+                .sidebarRow(.home)
             }
 
             Section("Libraries") {
@@ -38,7 +38,7 @@ struct SidebarView: View {
                     } icon: {
                         Image(systemName: "film.stack.fill")
                     }
-                    .tag(AppModel.SidebarSection.movies)
+                    .sidebarRow(.movies)
                 } else {
                     ForEach(model.libraries, id: \.id) { lib in
                         Label {
@@ -49,16 +49,16 @@ struct SidebarView: View {
                         } icon: {
                             Image(systemName: iconForCollectionType(lib.collectionType))
                         }
-                        .tag(AppModel.SidebarSection.library(lib.id))
+                        .sidebarRow(.library(lib.id))
                     }
                 }
             }
 
             Section("Discover") {
                 Label("Search", systemImage: "magnifyingglass")
-                    .tag(AppModel.SidebarSection.search)
+                    .sidebarRow(.search)
                 Label("Favourites", systemImage: "heart")
-                    .tag(AppModel.SidebarSection.favorites)
+                    .sidebarRow(.favorites)
                 // Always visible, even offline: this is what can be watched without a server.
                 Label {
                     HStack {
@@ -77,7 +77,7 @@ struct SidebarView: View {
                 } icon: {
                     Image(systemName: "arrow.down.circle")
                 }
-                .tag(AppModel.SidebarSection.downloads)
+                .sidebarRow(.downloads)
             }
         }
         .listStyle(.sidebar)
@@ -85,6 +85,26 @@ struct SidebarView: View {
         .safeAreaInset(edge: .bottom) {
             SidebarBottomBar()
         }
+    }
+}
+
+/// Selectable sidebar row. A click always shows the first page of its section, even when the row is
+/// already selected (the list does not report a click on the selected row, hence the extra gesture).
+private struct SidebarRow: ViewModifier {
+    @Environment(AppModel.self) private var model
+    let section: AppModel.SidebarSection
+
+    func body(content: Content) -> some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded { model.showSection(section) })
+    }
+}
+
+private extension View {
+    func sidebarRow(_ section: AppModel.SidebarSection) -> some View {
+        modifier(SidebarRow(section: section)).tag(section)
     }
 }
 

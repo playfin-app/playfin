@@ -28,7 +28,6 @@ struct AudioBookDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { coverBackground }
-        .navigationTitle(current.name)
         .onKeyPress(.space) {
             model.play(current, fromStart: false)
             return .handled
@@ -215,7 +214,7 @@ struct FolderDetailView: View {
 
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 20, alignment: .top)], spacing: 24) {
                         ForEach(children, id: \.id) { child in
-                            NavigationLink(value: Route.movie(child.id)) {
+                            RouteLink(value: Route.movie(child.id)) {
                                 PosterCard(movie: child)
                             }
                             .buttonStyle(CardButtonStyle())
@@ -229,7 +228,6 @@ struct FolderDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { detailBackground.ignoresSafeArea() }
-        .navigationTitle(current.name)
         .task(id: folder.id) { await reloadChildren() }
     }
 

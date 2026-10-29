@@ -38,8 +38,16 @@ struct PlayfinApp: App {
                 Button("Add a server…") { model.beginAddServer() }
             }
             CommandGroup(after: .sidebar) {
+                Button("Back") {
+                    model.requestGoBack()
+                }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(model.playback != nil)
+
+                Divider()
+
                 Button("Home") {
-                    model.selectedSection = .home
+                    model.showSection(.home)
                 }
                 .keyboardShortcut("1", modifiers: .command)
                 // The player has its own window: the page behind must not change during playback.
@@ -48,25 +56,25 @@ struct PlayfinApp: App {
                 Button("Library") {
                     // The first movie library (otherwise the first one at all): it is in the sidebar.
                     let library = model.libraries.first { $0.collectionType == "movies" } ?? model.libraries.first
-                    model.selectedSection = library.map { .library($0.id) } ?? .movies
+                    model.showSection(library.map { .library($0.id) } ?? .movies)
                 }
                 .keyboardShortcut("2", modifiers: .command)
                 .disabled(model.playback != nil)
 
                 Button("Search") {
-                    model.selectedSection = .search
+                    model.showSection(.search)
                 }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(model.playback != nil)
 
                 Button("Downloads") {
-                    model.selectedSection = .downloads
+                    model.showSection(.downloads)
                 }
                 .keyboardShortcut("3", modifiers: .command)
                 .disabled(model.playback != nil)
 
                 Button("Favourites") {
-                    model.selectedSection = .favorites
+                    model.showSection(.favorites)
                 }
                 .keyboardShortcut("4", modifiers: .command)
                 .disabled(model.playback != nil)

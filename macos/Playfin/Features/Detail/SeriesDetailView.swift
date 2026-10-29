@@ -104,7 +104,6 @@ struct SeriesDetailView: View {
         .background {
             DetailBackdrop(item: currentSeries)
         }
-        .navigationTitle(currentSeries.name)
         .task {
             await model.loadDetails(of: series.id)
             await loadSeasons()

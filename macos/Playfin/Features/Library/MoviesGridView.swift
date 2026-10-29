@@ -125,7 +125,8 @@ struct LibraryPreferences: Equatable {
 struct MoviesGridView: View {
     @Environment(AppModel.self) private var model
 
-    @State private var search = ""
+    /// Typed in the toolbar search field (see `LibraryView`).
+    @Binding var search: String
     @State private var sortOption: MovieSortOption = .titleAsc
     @State private var watchFilter: WatchFilter = .all
     @State private var selectedGenre: String? = nil
@@ -219,7 +220,7 @@ struct MoviesGridView: View {
                                         Section {
                                             LazyVGrid(columns: columns, spacing: 24) {
                                                 ForEach(section.movies, id: \.id) { movie in
-                                                    NavigationLink(value: Route.movie(movie.id)) {
+                                                    RouteLink(value: Route.movie(movie.id)) {
                                                         PosterCard(movie: movie, imageHeight: (CardSize(rawValue: cardSizeRaw) ?? .medium).imageHeight)
                                                     }
                                                     .buttonStyle(CardButtonStyle())
@@ -237,7 +238,7 @@ struct MoviesGridView: View {
                             } else {
                                 LazyVGrid(columns: columns, spacing: 24) {
                                     ForEach(filteredMovies, id: \.id) { movie in
-                                        NavigationLink(value: Route.movie(movie.id)) {
+                                        RouteLink(value: Route.movie(movie.id)) {
                                             PosterCard(movie: movie, imageHeight: (CardSize(rawValue: cardSizeRaw) ?? .medium).imageHeight)
                                         }
                                         .buttonStyle(CardButtonStyle())
@@ -261,7 +262,6 @@ struct MoviesGridView: View {
                 }
             }
         }
-        .searchable(text: $search, prompt: "Search movies…")
         .animation(Theme.Motion.fade, value: content == nil)
         .onAppear {
             if content == nil, let cached = model.gridCache["movies"], cached.query == gridQuery {

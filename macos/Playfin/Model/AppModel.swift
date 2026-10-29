@@ -36,6 +36,14 @@ final class AppModel {
 
     var screen: Screen = .loading
     var selectedSection: SidebarSection = .home
+    /// Incremented each time a section is chosen, even the one already shown: the main view then closes
+    /// the pages opened in it and shows its first page.
+    private(set) var sectionRootRequests = 0
+    /// Incremented by the "Back" menu item: the main view closes the current page.
+    private(set) var goBackRequests = 0
+    /// Page asked by a link (`RouteLink`): the main view opens it in the visible section.
+    private(set) var requestedRoute: Route?
+    private(set) var openRequests = 0
     var selectedGenreFilter: String? = nil
     var client: JellyfinClient?
     var movies: [Movie] = [] { didSet { moviesRevision &+= 1 } }
@@ -156,6 +164,21 @@ final class AppModel {
     }
 
     func movie(id: String) -> Movie? { known[id] }
+
+    /// Shows the first page of a section (sidebar click, menu shortcut), even if it is already selected.
+    func showSection(_ section: SidebarSection) {
+        selectedSection = section
+        sectionRootRequests &+= 1
+    }
+
+    func requestGoBack() {
+        goBackRequests &+= 1
+    }
+
+    func openPage(_ route: Route) {
+        requestedRoute = route
+        openRequests &+= 1
+    }
 
     /// The movies featured at the top of the home: first those in progress, then the new releases.
     var heroMovies: [Movie] {

@@ -7,14 +7,16 @@ struct LibraryGridView: View {
     @Environment(AppModel.self) private var model
     let libraryId: String
 
-    @State private var search = ""
+    /// Typed in the toolbar search field (see `LibraryView`).
+    @Binding var search: String
     // Remembered per library (see `LibraryPreferences`); the view is rebuilt for each library (`.id(libId)`).
     @State private var sortOption: MovieSortOption
     @State private var watchFilter: WatchFilter
     @State private var selectedGenre: String?
 
-    init(libraryId: String) {
+    init(libraryId: String, search: Binding<String>) {
         self.libraryId = libraryId
+        _search = search
         let saved = LibraryPreferences.load(libraryId: libraryId)
         _sortOption = State(initialValue: saved.sort)
         _watchFilter = State(initialValue: saved.watchFilter)
@@ -170,18 +172,6 @@ struct LibraryGridView: View {
                 }
             }
         }
-        .searchable(text: $search, prompt: "Search this library…")
-        .toolbar {
-            ToolbarItem {
-                Picker("Poster size", selection: $cardSizeRaw) {
-                    ForEach(CardSize.allCases) { size in
-                        Label(size.rawValue, systemImage: size.icon).tag(size.rawValue)
-                    }
-                }
-                .pickerStyle(.menu)
-                .help("Poster size")
-            }
-        }
         // First visit: the grid fades in instead of popping up.
         .animation(Theme.Motion.fade, value: content == nil)
         // Back to a library: its last grid at once (before the first frame), refreshed below.
@@ -230,7 +220,7 @@ struct LibraryGridView: View {
 
     @ViewBuilder
     private func gridItemCard(for movie: Movie) -> some View {
-        NavigationLink(value: Route.movie(movie.id)) {
+        RouteLink(value: Route.movie(movie.id)) {
             PosterCard(movie: movie, imageHeight: cardSize.imageHeight, aspectRatio: content?.cardAspectRatio)
         }
         .buttonStyle(CardButtonStyle())

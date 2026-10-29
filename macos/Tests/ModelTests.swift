@@ -20,6 +20,37 @@ final class ModelTests: AppTestCase {
         XCTAssertEqual(model.rustCoreVersion, coreVersion())
     }
 
+    /// Choosing the section already shown must still ask for its first page (sidebar click on "Home").
+    @MainActor
+    func testShowSectionRequestsFirstPageEvenWhenAlreadySelected() {
+        let model = AppModel()
+        model.showSection(.home)
+        XCTAssertEqual(model.selectedSection, .home)
+        XCTAssertEqual(model.sectionRootRequests, 1)
+
+        model.showSection(.home)
+        XCTAssertEqual(model.sectionRootRequests, 2)
+
+        model.showSection(.favorites)
+        XCTAssertEqual(model.selectedSection, .favorites)
+        XCTAssertEqual(model.sectionRootRequests, 3)
+
+        model.requestGoBack()
+        XCTAssertEqual(model.goBackRequests, 1)
+    }
+
+    /// The pages get the toolbar and sidebar margins from the main view (see `LibraryView.pageStack`).
+    @MainActor
+    func testPageMarginsAreTheGapBetweenTheUsableAreaAndTheColumn() {
+        let full = CGRect(x: 0, y: 0, width: 1512, height: 861)
+        let safe = CGRect(x: 238, y: 52, width: 1274, height: 809)
+        let margins = LibraryView.margins(of: safe, in: full)
+        XCTAssertEqual(margins.top, 52)
+        XCTAssertEqual(margins.leading, 238)
+        XCTAssertEqual(margins.bottom, 0)
+        XCTAssertEqual(margins.trailing, 0)
+    }
+
     func testServerAddressModel() {
         let localAddr = ServerAddress(url: "http://192.168.1.10:8096", label: "Home", priority: 1, isLocal: true)
         XCTAssertEqual(localAddr.url, "http://192.168.1.10:8096")

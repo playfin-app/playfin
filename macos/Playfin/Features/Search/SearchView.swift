@@ -158,7 +158,7 @@ struct SearchView: View {
                 if !model.latest.isEmpty {
                     Shelf(title: "Recently added", cardWidth: Theme.Layout.posterWidth) {
                         ForEach(model.latest.prefix(12), id: \.id) { movie in
-                            NavigationLink(value: Route.movie(movie.id)) {
+                            RouteLink(value: Route.movie(movie.id)) {
                                 ShelfCard(base: Theme.Layout.posterWidth) { PosterCard(movie: movie).frame(width: $0) }
                             }
                             .buttonStyle(CardButtonStyle())
@@ -182,7 +182,7 @@ struct SearchView: View {
                         Text("\(section.title) (\(section.items.count))").font(.title2.bold())
                         if section.title == "Episodes" {
                             ForEach(section.items, id: \.id) { episode in
-                                NavigationLink(value: Route.movie(episode.id)) {
+                                RouteLink(value: Route.movie(episode.id)) {
                                     OverviewResultRow(movie: episode, highlight: trimmedQuery)
                                 }
                                 .buttonStyle(CardButtonStyle())
@@ -194,7 +194,7 @@ struct SearchView: View {
                                 alignment: .leading, spacing: 24
                             ) {
                                 ForEach(section.items, id: \.id) { item in
-                                    NavigationLink(value: Route.movie(item.id)) {
+                                    RouteLink(value: Route.movie(item.id)) {
                                         PosterCard(movie: item)
                                     }
                                     .buttonStyle(CardButtonStyle())

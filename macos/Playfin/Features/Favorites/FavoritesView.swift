@@ -21,7 +21,7 @@ struct FavoritesView: View {
                         alignment: .leading, spacing: 24
                     ) {
                         ForEach(model.favorites, id: \.id) { item in
-                            NavigationLink(value: Route.movie(item.id)) {
+                            RouteLink(value: Route.movie(item.id)) {
                                 PosterCard(movie: item)
                             }
                             .buttonStyle(CardButtonStyle())

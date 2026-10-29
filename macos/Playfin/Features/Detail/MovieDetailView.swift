@@ -67,7 +67,6 @@ struct MovieDetailView: View {
         .background {
             DetailBackdrop(item: currentMovie)
         }
-        .navigationTitle(currentMovie.name)
         // The cast is not in the lists (to keep them light): we load it here.
         .task { await model.loadDetails(of: movie.id) }
         // Space plays from anywhere on the page.
@@ -131,7 +130,7 @@ struct MovieDetailView: View {
 
     /// Episode: direct link to the page of its series (whatever screen one comes from).
     private func seriesLink(_ seriesId: String) -> some View {
-        NavigationLink(value: Route.movie(seriesId)) {
+        RouteLink(value: Route.movie(seriesId)) {
             HStack(spacing: 6) {
                 Image(systemName: "rectangle.stack")
                 Text(currentMovie.seriesName ?? "View the series")

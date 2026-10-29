@@ -71,7 +71,7 @@ private struct CastAvatar: View {
     let person: Person
 
     var body: some View {
-        NavigationLink(value: Route.person(id: person.id ?? "", name: person.name)) {
+        RouteLink(value: Route.person(id: person.id ?? "", name: person.name)) {
             VStack(spacing: 8) {
                 AsyncArtwork(url: person.id.flatMap { model.personImageURL($0, height: 240) }, contentMode: .fill) {
                     Circle()

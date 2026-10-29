@@ -94,7 +94,7 @@ struct PosterCard: View {
                 }
             }
             Divider()
-            NavigationLink("Details", value: Route.movie(movie.id))
+            RouteLink("Details", value: Route.movie(movie.id))
         }
     }
 }

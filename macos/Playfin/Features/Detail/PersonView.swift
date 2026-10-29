@@ -52,7 +52,7 @@ struct PersonView: View {
                                 alignment: .leading, spacing: 24
                             ) {
                                 ForEach(section.items, id: \.id) { item in
-                                    NavigationLink(value: Route.movie(item.id)) {
+                                    RouteLink(value: Route.movie(item.id)) {
                                         PosterCard(movie: item)
                                     }
                                     .buttonStyle(CardButtonStyle())
@@ -66,7 +66,6 @@ struct PersonView: View {
             .padding(.bottom, 40)
         }
         .background(Theme.Colors.background)
-        .navigationTitle(name)
         .task { await load() }
     }
 

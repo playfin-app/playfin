@@ -70,6 +70,8 @@ enum Theme {
         static var hover: Animation { reduced(0.15) ?? .snappy(duration: 0.2) }
         /// Most changes of state: pages of a menu, rows, filters, banners.
         static var standard: Animation { reduced(0.2) ?? .smooth(duration: 0.3) }
+        /// Page changes in the main window: a page opening or closing, another section.
+        static var page: Animation { reduced(0.2) ?? .smooth(duration: 0.3) }
         /// Images that arrive (cross-fade from the BlurHash).
         static var fade: Animation { reduced(0.2) ?? .smooth(duration: 0.35) }
         /// Slow changes of the home banner.

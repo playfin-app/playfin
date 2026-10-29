@@ -40,6 +40,8 @@ jobs:
         run: brew install xcodegen gitleaks swiftlint
 
       - name: Tests
+        env:
+          TEST_RUNNER_PLAYFIN_CI: "1"
         run: |
           ./scripts/build-xcframework.sh
           ./scripts/test-all.sh

@@ -436,6 +436,7 @@ final class PlayerWindowTests: AppTestCase {
     }
 
     func testThePlayerOpensOverTheMainWindowAndClosesWithIt() throws {
+        try skipOnCI("the runner's screen is too small for the window frames")
         let model = AppModel()
         let host = hostWindow()
         let controller = PlayerWindowController()
@@ -568,6 +569,7 @@ final class PlayerSubtitleToggleTests: XCTestCase {
 @MainActor
 final class PlayerWindowTitleTests: AppTestCase {
     func testTheTitleNamesTheEpisodeAndFollowsTheNextItem() throws {
+        try skipOnCI("opens a real player window")
         var episode = makeItem(id: "A New Land", type: "Episode")
         episode.seriesName = "Alone"
         episode.parentIndexNumber = 3

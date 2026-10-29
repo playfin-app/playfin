@@ -32,4 +32,6 @@ jobs:
         run: ./scripts/build-xcframework.sh
 
       - name: Run Test Suite
+        env:
+          TEST_RUNNER_PLAYFIN_CI: "1"
         run: ./scripts/test-all.sh

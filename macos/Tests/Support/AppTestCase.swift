@@ -4,6 +4,12 @@ import os
 import XCTest
 @testable import Playfin
 
+/// GitHub's macOS runners are virtual machines: no video hardware decoding and a small screen.
+/// The CI sets `TEST_RUNNER_PLAYFIN_CI=1`, which xcodebuild passes to the tests as `PLAYFIN_CI`.
+func skipOnCI(_ reason: String) throws {
+    if ProcessInfo.processInfo.environment["PLAYFIN_CI"] == "1" { throw XCTSkip("Skipped on CI: \(reason)") }
+}
+
 /// Base class of the app tests: each test gets its own `UserDefaults`, and shared helpers live here.
 class AppTestCase: XCTestCase {
     private var testDefaultsSuiteName: String?

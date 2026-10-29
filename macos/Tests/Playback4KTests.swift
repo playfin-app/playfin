@@ -132,6 +132,7 @@ final class Playback4KTests: XCTestCase {
 
     @MainActor
     func test4KPlaybackThroughMPVPlayerView() throws {
+        try skipOnCI("needs real video hardware")
         // The test file is generated here: the test no longer depends on a file left in /tmp (it failed on a clean machine).
         let testVideoURL = FileManager.default.temporaryDirectory.appendingPathComponent("jn-4k-\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: testVideoURL) }

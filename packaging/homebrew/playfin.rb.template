@@ -5,14 +5,15 @@ cask "playfin" do
 
   url "https://github.com/__OWNER__/__REPO__/releases/download/v#{version}/Playfin-macOS.zip"
   name "Playfin"
-  desc "Native macOS client for Jellyfin (independent, not affiliated with the Jellyfin project)"
+  desc "Fast native client for Jellyfin media servers"
   homepage "https://github.com/__OWNER__/__REPO__"
 
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "Playfin.app"
 
   # Unnotarised build (no Apple Developer account): we remove the quarantine so the app opens.
+  # Kept as `postflight`: the newer `postflight_steps` has no step that can remove the quarantine.
   postflight do
     system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/Playfin.app"]
   end

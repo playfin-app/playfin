@@ -34,6 +34,10 @@ macos/Tests/                 one file per area; Support/ holds AppTestCase and M
 
 After adding or moving a Swift file: `cd macos && xcodegen generate`.
 
+Publishing a version, from `dev` with nothing left to commit: `scripts/release.sh X.Y.Z` (add `--dry-run` to check
+first). It writes the version, commits, moves `main` to `dev` and pushes the tag `vX.Y.Z`, which runs the Release
+workflow: tests, universal app, GitHub release and Homebrew cask.
+
 ## Code Conventions
 
 ### Commit Messages

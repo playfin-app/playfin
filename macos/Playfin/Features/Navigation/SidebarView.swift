@@ -3,6 +3,7 @@ import SwiftUI
 /// Main sidebar (PlxNative / Plex style).
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.isWindowFullScreen) private var isFullScreen
 
     var body: some View {
         @Bindable var bindableModel = model
@@ -82,9 +83,17 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 280)
+        // Full screen hides the toolbar and its window buttons: close and leave full screen are here, in the
+        // sidebar that comes over the page when the pointer reaches the left edge.
+        .safeAreaInset(edge: .top) {
+            if isFullScreen { FullScreenWindowButtons() }
+        }
         .safeAreaInset(edge: .bottom) {
             SidebarBottomBar()
         }
+        // Full screen: the room kept at the top for the toolbar stays empty (it is hidden); the window buttons
+        // take its place.
+        .ignoresSafeArea(.container, edges: isFullScreen ? .top : [])
     }
 }
 
@@ -105,6 +114,68 @@ private struct SidebarRow: ViewModifier {
 private extension View {
     func sidebarRow(_ section: AppModel.SidebarSection) -> some View {
         modifier(SidebarRow(section: section)).tag(section)
+    }
+}
+
+/// Full screen, where the toolbar is hidden: the window buttons of macOS (red: close, green: leave full screen).
+private struct FullScreenWindowButtons: View {
+    var body: some View {
+        HStack(spacing: 0) {
+            StandardWindowButtons().fixedSize()
+            Spacer()
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 10)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
+    }
+}
+
+/// The red and green buttons made by AppKit itself (`standardWindowButton`): same size and look as those of any
+/// window, at the spacing of this window's own buttons.
+private struct StandardWindowButtons: NSViewRepresentable {
+    private static let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
+
+    func makeNSView(context: Context) -> NSStackView {
+        let coordinator = context.coordinator
+        var buttons: [NSView] = []
+        if let close = NSWindow.standardWindowButton(.closeButton, for: Self.style) {
+            close.target = coordinator
+            close.action = #selector(Coordinator.close(_:))
+            close.toolTip = "Close the window"
+            buttons.append(close)
+        }
+        if let zoom = NSWindow.standardWindowButton(.zoomButton, for: Self.style) {
+            zoom.target = coordinator
+            zoom.action = #selector(Coordinator.leaveFullScreen(_:))
+            zoom.toolTip = "Leave full screen"
+            buttons.append(zoom)
+        }
+        let stack = NSStackView(views: buttons)
+        stack.orientation = .horizontal
+        stack.spacing = 6
+        coordinator.stack = stack
+        return stack
+    }
+
+    func updateNSView(_ stack: NSStackView, context: Context) {
+        // The gap between the window's own red and yellow buttons (it changes with the macOS version).
+        if let window = stack.window,
+           let close = window.standardWindowButton(.closeButton),
+           let minimize = window.standardWindowButton(.miniaturizeButton) {
+            let gap = minimize.frame.minX - close.frame.maxX
+            if gap > 0 { stack.spacing = gap }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        weak var stack: NSStackView?
+
+        @objc func close(_ sender: Any?) { stack?.window?.performClose(nil) }
+        @objc func leaveFullScreen(_ sender: Any?) { stack?.window?.toggleFullScreen(nil) }
     }
 }
 

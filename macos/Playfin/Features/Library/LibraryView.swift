@@ -32,6 +32,7 @@ struct LibraryView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView()
+                .environment(\.isWindowFullScreen, isFullScreen)
         } detail: {
             VStack(spacing: 0) {
                 if model.isServerUnreachable {
@@ -365,4 +366,6 @@ extension EnvironmentValues {
     /// banner, while its text stays clear.
     @Entry var pageMargins = EdgeInsets()
     @Entry var hasWindowControlsOverPage = false
+    /// The main window is in full screen (its toolbar and window buttons are hidden, see `LibraryView`).
+    @Entry var isWindowFullScreen = false
 }

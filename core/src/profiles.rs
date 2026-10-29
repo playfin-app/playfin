@@ -306,19 +306,45 @@ pub async fn select_active_address(
 
     let mut tasks = tokio::task::JoinSet::new();
 
-    for addr in addresses {
+    for (index, addr) in addresses.iter().enumerate() {
         let client = http.clone();
         let target_addr = addr.clone();
         tasks.spawn(async move {
             let res = probe_with_retry(&client, &target_addr.url, probe_timeout).await;
-            (target_addr, res)
+            (index, target_addr, res)
         });
     }
 
+    // Order of `sort_addresses_by_priority`: priority, then local first.
+    let rank = |addr: &ServerAddress| (addr.priority, !addr.is_local);
+    let mut pending = vec![true; addresses.len()];
     let mut results = Vec::new();
     while let Some(res) = tasks.join_next().await {
-        if let Ok((addr, probe_res)) = res {
-            results.push((addr, probe_res));
+        let Ok((index, addr, probe_res)) = res else {
+            continue;
+        };
+        pending[index] = false;
+        results.push((addr, probe_res));
+
+        // The best address has answered: no probe still running could rank before it, so `choose_address`
+        // would pick it anyway. No need to wait for the slower ones (dropping `tasks` stops them).
+        let best = results
+            .iter()
+            .filter(|(_, res)| {
+                res.as_ref().is_ok_and(|info| {
+                    !info.id.trim().is_empty() && info.id.eq_ignore_ascii_case(expected_server_id)
+                })
+            })
+            .map(|(addr, _)| rank(addr))
+            .min();
+        if let Some(best) = best {
+            let better_pending = addresses
+                .iter()
+                .enumerate()
+                .any(|(i, addr)| pending[i] && rank(addr) < best);
+            if !better_pending {
+                break;
+            }
         }
     }
 

@@ -117,6 +117,62 @@ async fn address_selection_picks_the_server_with_the_expected_id() {
     );
 }
 
+async fn server_with_slow_public_info(delay_ms: u64) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/System/Info/Public"))
+        .respond_with(json(PUBLIC_INFO).set_delay(std::time::Duration::from_millis(delay_ms)))
+        .mount(&server)
+        .await;
+    server
+}
+
+#[tokio::test]
+async fn address_selection_does_not_wait_for_a_slower_address_of_lower_priority() {
+    let first = server_with_public_info(PUBLIC_INFO).await;
+    let slow = server_with_slow_public_info(5_000).await;
+    let client = JellyfinClient::new(&first.uri(), &temp_dir("addr_early"));
+
+    let started = std::time::Instant::now();
+    let best = client
+        .auto_select_address(
+            vec![
+                ServerAddress::new(&first.uri(), "Home", 1),
+                ServerAddress::new(&slow.uri(), "Remote", 2),
+            ],
+            "srv-fixture-1",
+        )
+        .await
+        .expect("the first address answers");
+
+    assert_eq!(best.url, first.uri());
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(1_000),
+        "returned without waiting for the slow address: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn address_selection_still_waits_for_a_slower_address_of_higher_priority() {
+    let slow_first = server_with_slow_public_info(400).await;
+    let fast = server_with_public_info(PUBLIC_INFO).await;
+    let client = JellyfinClient::new(&fast.uri(), &temp_dir("addr_wait"));
+
+    let best = client
+        .auto_select_address(
+            vec![
+                ServerAddress::new(&slow_first.uri(), "Home", 1),
+                ServerAddress::new(&fast.uri(), "Remote", 2),
+            ],
+            "srv-fixture-1",
+        )
+        .await
+        .expect("both addresses answer");
+
+    assert_eq!(best.url, slow_first.uri(), "the priority still wins");
+}
+
 #[tokio::test]
 async fn address_selection_retries_an_address_that_refuses_the_first_connection() {
     // At launch, macOS refuses the app's first LAN connection at once, then lets the next ones through.

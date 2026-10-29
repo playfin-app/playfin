@@ -5,6 +5,7 @@
 use super::plan::Segment;
 use crate::JellyfinError;
 use rusqlite::{Connection, OptionalExtension, params};
+use std::collections::HashMap;
 use std::path::Path;
 
 const SCHEMA_VERSION: i64 = 1;
@@ -143,6 +144,37 @@ impl DownloadStore {
             ))
             .map_err(storage)?;
         let rows = stmt.query_map([], Self::row).map_err(storage)?;
+        rows.collect::<Result<_, _>>().map_err(storage)
+    }
+
+    /// Like `all`, without the item record (`item_json` left empty): for the progress reads, several times
+    /// per second, which never use it.
+    pub fn all_without_items(&self) -> Result<Vec<DownloadRow>, JellyfinError> {
+        let columns = Self::COLUMNS.replacen("item_json", "'' AS item_json", 1);
+        let mut stmt = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {columns} FROM downloads ORDER BY position, created_at"
+            ))
+            .map_err(storage)?;
+        let rows = stmt.query_map([], Self::row).map_err(storage)?;
+        rows.collect::<Result<_, _>>().map_err(storage)
+    }
+
+    /// Bytes already written per item, all segments together (same count as `plan::downloaded_bytes`),
+    /// in a single query.
+    pub fn downloaded_bytes_by_item(&self) -> Result<HashMap<String, u64>, JellyfinError> {
+        let mut stmt = self
+            .conn
+            .prepare_cached(
+                "SELECT item_id, SUM(MIN(done, end - start)) FROM segments GROUP BY item_id",
+            )
+            .map_err(storage)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?.max(0) as u64))
+            })
+            .map_err(storage)?;
         rows.collect::<Result<_, _>>().map_err(storage)
     }
 
@@ -418,6 +450,46 @@ mod tests {
             .map(|r| r.item_id)
             .collect();
         assert_eq!(ids, ["c", "a", "b"]);
+    }
+
+    #[test]
+    fn light_reads_match_the_full_ones() {
+        let mut store = DownloadStore::open_in_memory().unwrap();
+        store.insert("a", "A", r#"{"Id":"a"}"#, 1).unwrap();
+        store.insert("b", "B", r#"{"Id":"b"}"#, 2).unwrap();
+        let segments = [
+            Segment {
+                start: 0,
+                end: 10,
+                done: 4,
+            },
+            Segment {
+                start: 10,
+                end: 20,
+                done: 15,
+            },
+        ];
+        store.save_segments("a", &segments).unwrap();
+
+        let full = store.all().unwrap();
+        let light = store.all_without_items().unwrap();
+        assert!(light.iter().all(|r| r.item_json.is_empty()));
+        let without_json = |rows: Vec<DownloadRow>| {
+            rows.into_iter()
+                .map(|r| DownloadRow {
+                    item_json: String::new(),
+                    ..r
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(without_json(full), light);
+
+        let written = store.downloaded_bytes_by_item().unwrap();
+        assert_eq!(
+            written.get("a"),
+            Some(&super::super::plan::downloaded_bytes(&segments))
+        );
+        assert_eq!(written.get("b"), None, "no segment: nothing written");
     }
 
     #[test]

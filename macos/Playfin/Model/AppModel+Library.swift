@@ -145,12 +145,15 @@ extension AppModel {
         let pageSize: UInt32 = 500
         var loaded: [Movie] = []
         var seen = Set<String>()
+        // Items received from the server, duplicates included: where the next page starts. `loaded.count`
+        // (without the duplicates) would ask again for items already received.
+        var received = 0
 
         do {
             while true {
                 let page = try await client.libraryItems(
                     parentId: libraryId,
-                    startIndex: UInt32(loaded.count),
+                    startIndex: UInt32(received),
                     limit: pageSize,
                     sortBy: sortBy,
                     sortOrder: sortOrder,
@@ -158,10 +161,11 @@ extension AppModel {
                 )
                 guard generation == libraryLoadGeneration else { return }
                 remember(page.items)
+                received += page.items.count
                 for item in page.items where seen.insert(item.id).inserted {
                     loaded.append(item)
                 }
-                let done = page.items.isEmpty || loaded.count >= Int(page.totalRecordCount)
+                let done = page.items.isEmpty || received >= Int(page.totalRecordCount)
                 if publishProgressively || done {
                     libraryItems = loaded
                     libraryTotalCount = max(page.totalRecordCount, UInt32(loaded.count))
@@ -190,15 +194,17 @@ extension AppModel {
         guard let client else { return [] }
         var all: [Movie] = []
         var seen = Set<String>()
+        var received = 0 // duplicates included (see `loadLibraryItems`)
         do {
             while true {
                 let page = try await client.libraryItems(
-                    parentId: parentId, startIndex: UInt32(all.count), limit: 500,
+                    parentId: parentId, startIndex: UInt32(received), limit: 500,
                     sortBy: sortBy, sortOrder: "Ascending", includeItemTypes: nil
                 )
                 remember(page.items)
+                received += page.items.count
                 for item in page.items where seen.insert(item.id).inserted { all.append(item) }
-                if page.items.isEmpty || all.count >= Int(page.totalRecordCount) { break }
+                if page.items.isEmpty || received >= Int(page.totalRecordCount) { break }
             }
         } catch {
             logger.error("Failed to load the content of a folder: \(error.localizedDescription, privacy: .private)")

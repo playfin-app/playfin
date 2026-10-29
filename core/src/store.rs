@@ -219,13 +219,19 @@ impl ProfileStore {
         let tx = self.conn.transaction().map_err(storage)?;
         tx.execute("DELETE FROM items WHERE library_id = ?1", [library_id])
             .map_err(storage)?;
-        for (position, (id, name, json)) in items.iter().enumerate() {
-            tx.execute(
-                "INSERT INTO items (id, library_id, name, json, updated_at, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT(library_id, id) DO UPDATE SET name = ?3, json = ?4, updated_at = ?5, position = ?6",
-                params![id, library_id, name, json, now, position as i64],
-            )
-            .map_err(storage)?;
+        {
+            // Prepared once for the whole list (a library can hold thousands of items).
+            let mut insert = tx
+                .prepare(
+                    "INSERT INTO items (id, library_id, name, json, updated_at, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     ON CONFLICT(library_id, id) DO UPDATE SET name = ?3, json = ?4, updated_at = ?5, position = ?6",
+                )
+                .map_err(storage)?;
+            for (position, (id, name, json)) in items.iter().enumerate() {
+                insert
+                    .execute(params![id, library_id, name, json, now, position as i64])
+                    .map_err(storage)?;
+            }
         }
         tx.commit().map_err(storage)
     }

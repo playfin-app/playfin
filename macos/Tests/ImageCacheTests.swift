@@ -68,6 +68,11 @@ final class ImageCacheTests: XCTestCase {
         XCTAssertEqual(localKey, remoteKey)
     }
 
+    func testOtherImageKeysKeepOnlySafeCharacters() {
+        let url = URL(string: "https://jellyfin.example.com/Users/u-1/Images/Profile?tag=a.b&x=1")!
+        XCTAssertEqual(ImageCache.cacheKey(for: url), "_Users_u-1_Images_Profile_tag_a_b_x_1")
+    }
+
     func testMemoryCacheStoreAndRetrieve() {
         let testImage = makeTestImage(size: NSSize(width: 40, height: 40))
         let key = "test_memory_key"

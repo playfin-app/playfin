@@ -243,7 +243,8 @@ impl DownloadManager {
         Ok(Arc::new(Self::build(client, db_dir, settings, disk)?))
     }
 
-    fn info(&self, row: &store::DownloadRow) -> DownloadInfo {
+    /// `written`: bytes already written per item (see `DownloadStore::downloaded_bytes_by_item`).
+    fn info(&self, row: &store::DownloadRow, written: &HashMap<String, u64>) -> DownloadInfo {
         let active = self
             .inner
             .active
@@ -263,11 +264,7 @@ impl DownloadManager {
                 let done = if state == DownloadState::Completed {
                     row.total_bytes
                 } else {
-                    self.inner
-                        .store()
-                        .segments(&row.item_id)
-                        .map(|s| plan::downloaded_bytes(&s))
-                        .unwrap_or(0)
+                    written.get(&row.item_id).copied().unwrap_or(0)
                 };
                 (done, row.total_bytes, 0, 0)
             }
@@ -967,8 +964,15 @@ impl DownloadManager {
     }
 
     pub fn snapshot(&self) -> Vec<DownloadInfo> {
-        let rows = self.inner.store().all().unwrap_or_default();
-        rows.iter().map(|row| self.info(row)).collect()
+        // Read 4 times per second by the app: without the item records, and all the segments in one query.
+        let (rows, written) = {
+            let store = self.inner.store();
+            (
+                store.all_without_items().unwrap_or_default(),
+                store.downloaded_bytes_by_item().unwrap_or_default(),
+            )
+        };
+        rows.iter().map(|row| self.info(row, &written)).collect()
     }
 
     pub async fn pause(self: Arc<Self>, item_id: String) {
@@ -1102,7 +1106,7 @@ impl DownloadManager {
     pub fn used_bytes(&self) -> u64 {
         self.inner
             .store()
-            .all()
+            .all_without_items()
             .unwrap_or_default()
             .iter()
             .filter(|row| row.state == "completed")

@@ -126,9 +126,14 @@ public final class ImageCache: @unchecked Sendable {
            pathComponents[itemsIdx + 2].caseInsensitiveCompare("images") == .orderedSame {
             let itemId = pathComponents[itemsIdx + 1]
             let kind = pathComponents[itemsIdx + 3].lowercased()
-            let maxHeight = components?.queryItems?.first(where: { $0.name.caseInsensitiveCompare("maxHeight") == .orderedSame })?.value.flatMap { UInt32($0) }
-            let maxWidth = components?.queryItems?.first(where: { $0.name.caseInsensitiveCompare("maxWidth") == .orderedSame })?.value.flatMap { UInt32($0) }
-            let tag = components?.queryItems?.first(where: { $0.name.caseInsensitiveCompare("tag") == .orderedSame })?.value
+            // Parameters read once (`queryItems` parses the query again on every access).
+            let queryItems = components?.queryItems ?? []
+            func value(_ name: String) -> String? {
+                queryItems.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame })?.value
+            }
+            let maxHeight = value("maxHeight").flatMap { UInt32($0) }
+            let maxWidth = value("maxWidth").flatMap { UInt32($0) }
+            let tag = value("tag")
             return cacheKey(itemId: itemId, kind: kind, tag: tag, maxHeight: maxHeight, maxWidth: maxWidth)
         }
 
@@ -138,7 +143,7 @@ public final class ImageCache: @unchecked Sendable {
         let relative = query.isEmpty ? path : "\(path)?\(query)"
 
         // Sanitised key based on the relative path
-        let sanitized = relative.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-" ? String($0) : "_" }.joined()
+        let sanitized = sanitize(relative)
         return sanitized.isEmpty ? "unknown_image" : sanitized
     }
 
@@ -333,8 +338,20 @@ public final class ImageCache: @unchecked Sendable {
 
     // MARK: - Utilitaires internes
 
+    private static let fileNameCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+
+    /// Letters, digits, "_" and "-" kept, anything else becomes "_" (one character at a time, without building a
+    /// string for each one).
+    private static func sanitize(_ text: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            scalars.append(fileNameCharacters.contains(scalar) ? scalar : "_")
+        }
+        return String(scalars)
+    }
+
     private func fileURL(forKey key: String) -> URL {
-        let sanitized = key.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-" ? String($0) : "_" }.joined()
+        let sanitized = Self.sanitize(key)
         return diskCacheURL.appendingPathComponent("\(sanitized).img")
     }
 

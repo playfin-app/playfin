@@ -154,6 +154,28 @@ private final class PassThroughView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+/// Round Back button at the top left of an opened page (there is no toolbar, see `LibraryView`).
+struct PageBackButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button { model.requestGoBack() } label: {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(.black.opacity(0.45)))
+                .overlay(Circle().strokeBorder(.white.opacity(0.2), lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .buttonStyle(PressableButtonStyle())
+        .padding(.leading, 16)
+        .padding(.top, 12)
+        .help("Back")
+        .accessibilityLabel("Back")
+    }
+}
+
 /// Link to a page, like `NavigationLink(value:)`: the page opens over the current one with a fade.
 struct RouteLink<Label: View>: View {
     @Environment(AppModel.self) private var model

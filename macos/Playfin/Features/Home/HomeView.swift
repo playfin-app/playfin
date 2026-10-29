@@ -6,6 +6,7 @@ import AppKit
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.pageMargins) private var margins
 
     var body: some View {
         Group {
@@ -26,31 +27,20 @@ struct HomeView: View {
                     VStack(alignment: .leading, spacing: 30) {
                         if model.heroMovies.isEmpty {
                             // The first titles of the banner are on their way: their place is kept.
-                            Color.clear.containerRelativeFrame(.vertical) { height, _ in max(400, height * 0.58) }
+                            Color.clear.containerRelativeFrame(.vertical) { height, _ in HeroBanner.height(in: height) }
                         } else {
                             HeroBanner(movies: model.heroMovies)
                         }
 
-                        if !model.resume.isEmpty {
-                            continueRow("Continue watching", items: model.resume)
-                        }
-                        if !model.nextUp.isEmpty {
-                            continueRow("Up next", items: model.nextUp)
-                        }
-                        if !model.favorites.isEmpty {
-                            // Like the other rows: at most ~20 cards (this stack is not lazy). All of them are under Favourites.
-                            posterRow("Favourites", items: Array(model.favorites.prefix(20)))
-                        }
-                        if model.latestByLibrary.isEmpty {
-                            if !model.latest.isEmpty { posterRow("Recently added", items: model.latest) }
-                        } else {
-                            ForEach(model.latestByLibrary, id: \.library.id) { row in
-                                posterRow("Recently added in \(row.library.name)", items: row.items)
-                            }
-                        }
+                        rows
+                            // The banner runs under the sidebar; the rows stay beside it.
+                            .padding(.leading, margins.leading)
                     }
                     .padding(.bottom, 40)
                 }
+                // From the top edge and the left edge of the window, like the Apple TV app: the banner runs under
+                // the sidebar, and its height is worked out from the whole window.
+                .ignoresSafeArea(edges: [.top, .leading])
             }
         }
         .background(Theme.Colors.background)
@@ -63,6 +53,29 @@ struct HomeView: View {
                 try? await Task.sleep(for: .seconds(max(60, model.featuredTimeLeft + 1)))
                 guard !Task.isCancelled else { return }
                 await model.loadFeatured()
+            }
+        }
+    }
+
+    /// The rows under the banner.
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: 30) {
+            if !model.resume.isEmpty {
+                continueRow("Continue watching", items: model.resume)
+            }
+            if !model.nextUp.isEmpty {
+                continueRow("Up next", items: model.nextUp)
+            }
+            if !model.favorites.isEmpty {
+                // Like the other rows: at most ~20 cards (this stack is not lazy). All of them are under Favourites.
+                posterRow("Favourites", items: Array(model.favorites.prefix(20)))
+            }
+            if model.latestByLibrary.isEmpty {
+                if !model.latest.isEmpty { posterRow("Recently added", items: model.latest) }
+            } else {
+                ForEach(model.latestByLibrary, id: \.library.id) { row in
+                    posterRow("Recently added in \(row.library.name)", items: row.items)
+                }
             }
         }
     }
@@ -378,6 +391,7 @@ struct HeroBanner: View {
     /// Subject of each image (see `FocalPoint`), by item: the image is framed on it rather than on its centre.
     @State private var framings: [String: FocalPoint.Framing] = [:]
     @Environment(\.isPageVisible) private var isPageVisible
+    @Environment(\.pageMargins) private var margins
 
     /// Where the subject goes: in the upper part (the bottom fades into the rows and holds the text), a little to the
     /// right of the middle (the text is on the left).
@@ -393,14 +407,36 @@ struct HeroBanner: View {
     }
     @Environment(\.scenePhase) private var scenePhase
 
+    /// About 70 % of the window, never under 400 pt: the image fills most of the screen, the first row shows below.
+    static func height(in windowHeight: CGFloat) -> CGFloat { max(400, windowHeight * 0.7) }
+
     private var current: Movie { movies[min(index, movies.count - 1)] }
     private var movieIds: [String] { movies.map(\.id) }
+
+    /// Next (1) or previous (-1) title, going round.
+    private func step(by offset: Int) {
+        guard movies.count > 1 else { return }
+        withAnimation(Theme.Motion.hero) { index = (index + offset + movies.count) % movies.count }
+    }
+
+    private func heroArrow(_ systemName: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 30, weight: .light))
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(width: 44, height: 88)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+    }
 
     var body: some View {
         let movie = current
         Color.clear
-            // Height proportional to the window (≈ 58%), never under 400 pt: full screen = cinematic visual
-            .containerRelativeFrame(.vertical) { height, _ in max(400, height * 0.58) }
+            // Height proportional to the window (see `height(in:)`): full screen = cinematic visual
+            .containerRelativeFrame(.vertical) { height, _ in Self.height(in: height) }
             .frame(maxWidth: .infinity)
             .overlay {
                 let framing = framings[movie.id] ?? FocalPointCache.shared.cachedFraming(for: backdropURL(movie))
@@ -472,6 +508,8 @@ struct HeroBanner: View {
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, Theme.Spacing.screenMargin)
+                // The image runs under the sidebar, the text stays beside it.
+                .padding(.leading, margins.leading)
                 .padding(.bottom, 28)
                 .id(movie.id)
                 .transition(.opacity)
@@ -498,6 +536,25 @@ struct HeroBanner: View {
                     .padding(.bottom, 32)
                 }
             }
+            // Previous / next title, like the Apple TV app: arrows on the sides (shown under the pointer)…
+            .overlay {
+                if movies.count > 1 {
+                    HStack {
+                        heroArrow("chevron.left", help: "Previous") { step(by: -1) }
+                        Spacer()
+                        heroArrow("chevron.right", help: "Next") { step(by: 1) }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.leading, margins.leading)
+                    .opacity(isHovered ? 1 : 0)
+                    .animation(Theme.Motion.hover, value: isHovered)
+                }
+            }
+            // …and a two-finger swipe over the banner (not over the sidebar, which covers its left part).
+            .background(
+                HorizontalSwipeReader(isActive: isPageVisible && movies.count > 1) { step(by: $0) }
+                    .padding(.leading, margins.leading)
+            )
             .onHover { isHovered = $0 }
             // New titles (every 30 minutes): from the first one.
             .onChange(of: movieIds) { _, _ in index = 0 }
@@ -580,6 +637,82 @@ struct ContinueCard: View {
             WatchedMenuItems(movie: movie)
             Divider()
             RouteLink("Details", value: Route.movie(movie.id))
+        }
+    }
+}
+
+/// What a trackpad gesture turned out to be (see `HorizontalSwipeReader`).
+private enum SwipeDecision { case undecided, horizontal, vertical }
+
+/// A two-finger horizontal swipe over this view: `onSwipe(1)` towards the next item (fingers to the left), `-1`
+/// towards the previous one. One step per gesture; vertical gestures keep scrolling the page.
+struct HorizontalSwipeReader: NSViewRepresentable {
+    let isActive: Bool
+    let onSwipe: (Int) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        let coordinator = context.coordinator
+        coordinator.view = view
+        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak coordinator] event in
+            let used = MainActor.assumeIsolated { coordinator?.handle(event) ?? false }
+            return used ? nil : event
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.isActive = isActive
+        context.coordinator.onSwipe = onSwipe
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let monitor = coordinator.monitor { NSEvent.removeMonitor(monitor) }
+        coordinator.monitor = nil
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    @MainActor
+    final class Coordinator {
+        weak var view: NSView?
+        var monitor: Any?
+        var isActive = false
+        var onSwipe: (Int) -> Void = { _ in }
+        /// Movement of the current gesture, until it is clearly horizontal (or vertical).
+        private var travel = CGSize.zero
+        private var decision = SwipeDecision.undecided
+
+        /// True when the event belongs to a horizontal swipe over the view (it then goes no further).
+        func handle(_ event: NSEvent) -> Bool {
+            if event.phase == .began {
+                travel = .zero
+                decision = .undecided
+            }
+            // Only the fingers on the trackpad (not the momentum after them, nor a mouse wheel).
+            guard isActive, event.phase == .began || event.phase == .changed,
+                  let view, let window = view.window, event.window === window, !view.isHiddenOrHasHiddenAncestor,
+                  view.bounds.contains(view.convert(event.locationInWindow, from: nil))
+            else { return decision == .horizontal && event.momentumPhase != [] }
+
+            switch decision {
+            case .vertical:
+                return false
+            case .horizontal:
+                return true
+            case .undecided:
+                travel.width += event.scrollingDeltaX
+                travel.height += event.scrollingDeltaY
+                guard abs(travel.width) + abs(travel.height) > 12 else { return false }
+                guard abs(travel.width) > abs(travel.height) * 1.5 else {
+                    decision = .vertical
+                    return false
+                }
+                decision = .horizontal
+                // Content moving right (fingers to the right): the previous item.
+                onSwipe(travel.width > 0 ? -1 : 1)
+                return true
+            }
         }
     }
 }

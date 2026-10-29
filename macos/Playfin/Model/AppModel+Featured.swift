@@ -5,10 +5,10 @@ import SwiftUI
 /// "Continue watching" already shows what is in progress: the banner shows something else.
 extension AppModel {
     nonisolated static let featuredLifetime: TimeInterval = 30 * 60
-    static let featuredCount = 5
-    /// Random titles asked to the server: enough to keep 5 after setting aside the ones without a background
+    static let featuredCount = 10
+    /// Random titles asked to the server: enough to keep 10 after setting aside the ones without a background
     /// image, already watched or in progress.
-    static let featuredCandidates: UInt32 = 40
+    static let featuredCandidates: UInt32 = 60
 
     /// A choice of banner titles, kept per profile (`UserDefaults`): the same titles come back while it is recent,
     /// even after a relaunch.

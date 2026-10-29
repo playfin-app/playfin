@@ -52,19 +52,17 @@ final class ModelTests: AppTestCase {
         )
     }
 
-    /// Banner titles: with a background image, not in progress, unwatched first, five at most, each once.
+    /// Banner titles: with a background image, not in progress, unwatched first, ten at most, each once.
     @MainActor
     func testFeaturedTitlesAreUnwatchedWithABackgroundAndNotInProgress() {
         let candidates = [
             featuredCandidate("watched", watched: true),
             featuredCandidate("noBackdrop", backdrop: false),
             featuredCandidate("inProgress"),
-            featuredCandidate("a"), featuredCandidate("a"),
-            featuredCandidate("b"), featuredCandidate("c"), featuredCandidate("d"), featuredCandidate("e"),
-            featuredCandidate("f")
-        ]
+            featuredCandidate("a"), featuredCandidate("a")
+        ] + "bcdefghijkl".map { featuredCandidate(String($0)) }
         let picked = AppModel.pickFeatured(from: candidates, excluding: ["inProgress"])
-        XCTAssertEqual(picked.map(\.id), ["a", "b", "c", "d", "e"])
+        XCTAssertEqual(picked.map(\.id), ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"])
 
         // A small library: the watched titles complete the banner.
         let few = AppModel.pickFeatured(from: [featuredCandidate("watched", watched: true), featuredCandidate("a")], excluding: [])
@@ -100,6 +98,8 @@ final class ModelTests: AppTestCase {
         XCTAssertEqual(margins.leading, 238)
         XCTAssertEqual(margins.bottom, 0)
         XCTAssertEqual(margins.trailing, 0)
+        // Full screen: the sidebar shows over the page, the page keeps no room for it.
+        XCTAssertEqual(LibraryView.margins(of: safe, in: full, sidebarOverPage: true).leading, 0)
     }
 
     func testServerAddressModel() {

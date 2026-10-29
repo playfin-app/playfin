@@ -125,8 +125,7 @@ struct LibraryPreferences: Equatable {
 struct MoviesGridView: View {
     @Environment(AppModel.self) private var model
 
-    /// Typed in the toolbar search field (see `LibraryView`).
-    @Binding var search: String
+    @State private var search = ""
     @State private var sortOption: MovieSortOption = .titleAsc
     @State private var watchFilter: WatchFilter = .all
     @State private var selectedGenre: String? = nil
@@ -190,7 +189,9 @@ struct MoviesGridView: View {
                             selectedGenre = nil
                             model.selectedGenreFilter = nil
                             search = ""
-                        }
+                        },
+                        search: $search,
+                        searchPrompt: "Search movies…"
                     )
 
                     // Still loading with nothing to show: not "No matching movie" for a split second.
@@ -318,6 +319,16 @@ struct FilterToolbar: View {
     let genres: [(genre: String, count: Int)]
     let hasActiveFilters: Bool
     let onResetFilters: () -> Void
+    @Binding var search: String
+    let searchPrompt: String
+    @AppStorage("libraryCardSize") private var cardSizeRaw = CardSize.medium.rawValue
+
+    private var cardSize: CardSize { CardSize(rawValue: cardSizeRaw) ?? .medium }
+    @Environment(\.pageMargins) private var margins
+    @Environment(\.hasWindowControlsOverPage) private var hasWindowControlsOverPage
+
+    /// Width taken by the window buttons and the sidebar button at the top left when the sidebar is hidden.
+    private static let windowControlsWidth: CGFloat = 165
 
     var body: some View {
         HStack(spacing: 12) {
@@ -386,6 +397,25 @@ struct FilterToolbar: View {
             .menuStyle(.borderedButton)
             .fixedSize() // never a truncated label
 
+            // Poster size
+            Menu {
+                ForEach(CardSize.allCases) { size in
+                    Button {
+                        cardSizeRaw = size.rawValue
+                    } label: {
+                        HStack {
+                            Text(size.rawValue)
+                            if cardSize == size { Image(systemName: "checkmark") }
+                        }
+                    }
+                }
+            } label: {
+                Label(cardSize.rawValue, systemImage: cardSize.icon)
+            }
+            .menuStyle(.borderedButton)
+            .fixedSize()
+            .help("Poster size")
+
             if hasActiveFilters {
                 Button("Reset", action: onResetFilters)
                     .buttonStyle(.borderless)
@@ -400,10 +430,49 @@ struct FilterToolbar: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .layoutPriority(-1)
+
+            GridSearchField(text: $search, prompt: searchPrompt)
         }
         .padding(.horizontal, Theme.Spacing.screenMargin)
-        .padding(.vertical, 10)
+        // At the very top of the window, in the toolbar's place (it is empty there), clear of the window buttons
+        // when the sidebar is hidden. In full screen, there is no toolbar: simply at the top.
+        .padding(.leading, hasWindowControlsOverPage ? max(0, Self.windowControlsWidth - Theme.Spacing.screenMargin) : 0)
+        .frame(minHeight: margins.top > 0 ? margins.top : nil)
+        .padding(.vertical, margins.top > 0 ? 0 : 10)
         .background(Theme.Colors.background)
+        .padding(.top, -margins.top)
+        // Over the grid: its scroll area reaches the top of the window too, and would take the clicks.
+        .zIndex(1)
+    }
+}
+
+/// Search field of the grids, at the right of their filter row.
+struct GridSearchField: View {
+    @Binding var text: String
+    let prompt: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+            if !text.isEmpty {
+                Button { text = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Clear the search")
+                .accessibilityLabel("Clear the search")
+            }
+        }
+        .font(.callout)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .frame(width: 240)
+        .background(Capsule().fill(Color.white.opacity(0.08)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
     }
 }
 

@@ -7,16 +7,14 @@ struct LibraryGridView: View {
     @Environment(AppModel.self) private var model
     let libraryId: String
 
-    /// Typed in the toolbar search field (see `LibraryView`).
-    @Binding var search: String
+    @State private var search = ""
     // Remembered per library (see `LibraryPreferences`); the view is rebuilt for each library (`.id(libId)`).
     @State private var sortOption: MovieSortOption
     @State private var watchFilter: WatchFilter
     @State private var selectedGenre: String?
 
-    init(libraryId: String, search: Binding<String>) {
+    init(libraryId: String) {
         self.libraryId = libraryId
-        _search = search
         let saved = LibraryPreferences.load(libraryId: libraryId)
         _sortOption = State(initialValue: saved.sort)
         _watchFilter = State(initialValue: saved.watchFilter)
@@ -75,7 +73,9 @@ struct LibraryGridView: View {
                             watchFilter = .all
                             selectedGenre = nil
                             search = ""
-                        }
+                        },
+                        search: $search,
+                        searchPrompt: "Search this library…"
                     )
 
                     if content == nil {

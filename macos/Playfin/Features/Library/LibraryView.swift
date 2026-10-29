@@ -21,10 +21,11 @@ struct LibraryView: View {
     @State private var swipe = SwipeBack()
     /// Key of the first page of the section for `SwipeBack` (the opened pages have their own).
     @State private var rootPageID = UUID()
-    /// Search field of the movie grids: in the toolbar here, the grids being in their own views (see `PageHost`).
-    @State private var gridSearch = ""
-    @AppStorage("libraryCardSize") private var cardSizeRaw = CardSize.medium.rawValue
     @Environment(\.scenePhase) private var scenePhase
+    /// The window is in full screen (see `FullScreenReader`).
+    @State private var isFullScreen = false
+    /// Sidebar state before full screen, given back when leaving it.
+    @State private var columnVisibilityBeforeFullScreen: NavigationSplitViewVisibility?
 
     private var section: AppModel.SidebarSection { displayedSection ?? model.selectedSection }
 
@@ -45,29 +46,13 @@ struct LibraryView: View {
                         .transition(.opacity)
                 }
             }
-            .navigationTitle(title)
-            .background { gridSearchField }
-            .toolbar {
-                if pages.isEmpty, case .library = section {
-                    ToolbarItem {
-                        Picker("Poster size", selection: $cardSizeRaw) {
-                            ForEach(CardSize.allCases) { size in
-                                Label(size.rawValue, systemImage: size.icon).tag(size.rawValue)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .help("Poster size")
-                    }
-                }
-                if !pages.isEmpty {
-                    ToolbarItem(placement: .navigation) {
-                        Button { _ = goBack() } label: {
-                            Label("Back", systemImage: "chevron.left")
-                        }
-                        .help("Back")
-                    }
-                }
-            }
+            // Like the Apple TV app: no page title (the sidebar already says where one is) and no toolbar
+            // background (it showed as a dark band once a grid had scrolled under it). The window keeps its
+            // buttons and the sidebar button; in full screen, no toolbar at all (macOS gave it its own band).
+            // The Back button is in the pages (see `PageBackButton`).
+            .modifier(HiddenToolbarTitle(title: title))
+            .toolbarBackground(.hidden, for: .windowToolbar)
+            .toolbar(isFullScreen ? .hidden : .automatic, for: .windowToolbar)
             .onAppear { displayedSection = model.selectedSection }
             // The new section opens on its first page, with a fade.
             .onChange(of: model.selectedSection) { _, newSection in
@@ -75,7 +60,6 @@ struct LibraryView: View {
                 withAnimation(Theme.Motion.page) {
                     displayedSection = newSection
                     pages = []
-                    gridSearch = ""
                 }
             }
             // A click on the section already shown: back to its first page.
@@ -104,7 +88,19 @@ struct LibraryView: View {
                 Text(model.offlineAlertMessage ?? "")
             }
         }
-        .navigationSplitViewStyle(.balanced)
+        // The page keeps its size when the sidebar shows over it (full screen, see below).
+        .navigationSplitViewStyle(.prominentDetail)
+        // Full screen: the sidebar is hidden, and shows over the page when the pointer reaches the left edge.
+        .onChange(of: isFullScreen) { _, fullScreen in
+            if fullScreen {
+                columnVisibilityBeforeFullScreen = columnVisibility
+                columnVisibility = .detailOnly
+            } else {
+                columnVisibility = columnVisibilityBeforeFullScreen ?? .all
+                columnVisibilityBeforeFullScreen = nil
+            }
+        }
+        .background(FullScreenReader(isFullScreen: $isFullScreen))
         // Escape, two-finger swipe, mouse back button: back to the previous page. Placed outside the columns:
         // the detail column is rebuilt when pages change, and a view inside it could lose its window.
         .background(GoBackMonitor(
@@ -125,7 +121,8 @@ struct LibraryView: View {
         GeometryReader { safe in
             let safeFrame = safe.frame(in: .global)
             GeometryReader { full in
-                let margins = Self.margins(of: safeFrame, in: full.frame(in: .global))
+                // Full screen: the sidebar shows over the page, which keeps its layout.
+                let margins = Self.margins(of: safeFrame, in: full.frame(in: .global), sidebarOverPage: isFullScreen)
                 ZStack {
                     page(id: rootPageID, depth: 0, margins: margins) { rootView }
                     ForEach(Array(pages.enumerated()), id: \.element.id) { index, page in
@@ -139,10 +136,11 @@ struct LibraryView: View {
     }
 
     /// Margins between the area pages may use (`safe`) and the whole column (`full`): toolbar, sidebar.
-    static func margins(of safe: CGRect, in full: CGRect) -> EdgeInsets {
+    /// `sidebarOverPage`: no margin for the sidebar, which then shows over the page.
+    static func margins(of safe: CGRect, in full: CGRect, sidebarOverPage: Bool = false) -> EdgeInsets {
         EdgeInsets(
             top: max(0, safe.minY - full.minY),
-            leading: max(0, safe.minX - full.minX),
+            leading: sidebarOverPage ? 0 : max(0, safe.minX - full.minX),
             bottom: max(0, full.maxY - safe.maxY),
             trailing: max(0, full.maxX - safe.maxX)
         )
@@ -157,11 +155,19 @@ struct LibraryView: View {
             isShown: isShown,
             swipe: swipe,
             content: content()
+                // An opened page has its Back button at the top left: it moves with the page during a swipe.
+                .overlay(alignment: .topLeading) {
+                    if depth > 0 { PageBackButton() }
+                }
                 // Opaque: nothing of the page below shows through.
                 .background(Theme.Colors.background.ignoresSafeArea())
                 // The page is in its own view: what it reads from its surroundings is passed here.
                 .environment(model)
                 .environment(\.isPageVisible, isTop)
+                .environment(\.pageMargins, margins)
+                // The window buttons and the sidebar button sit over the top left of the page when the sidebar is
+                // hidden (in a window: in full screen, there is no toolbar).
+                .environment(\.hasWindowControlsOverPage, !isFullScreen && margins.leading < 1)
                 .environment(\.scenePhase, scenePhase)
                 .tint(Theme.Colors.accent)
                 .safeAreaPadding(margins)
@@ -173,24 +179,12 @@ struct LibraryView: View {
         .accessibilityHidden(!isTop)
     }
 
-    /// The search field of the movie grids, only while one of them is on top.
-    @ViewBuilder
-    private var gridSearchField: some View {
-        if pages.isEmpty {
-            switch section {
-            case .movies: Color.clear.searchable(text: $gridSearch, prompt: "Search movies…")
-            case .library: Color.clear.searchable(text: $gridSearch, prompt: "Search this library…")
-            default: EmptyView()
-            }
-        }
-    }
-
     @ViewBuilder
     private var rootView: some View {
         switch section {
         case .home: HomeView()
-        case .movies: MoviesGridView(search: $gridSearch)
-        case .library(let libId): LibraryGridView(libraryId: libId, search: $gridSearch)
+        case .movies: MoviesGridView()
+        case .library(let libId): LibraryGridView(libraryId: libId)
         case .search: SearchView()
         case .favorites: FavoritesView()
         case .downloads: DownloadsView()
@@ -266,6 +260,63 @@ struct LibraryView: View {
     }
 }
 
+/// The window keeps its title (Window menu, Mission Control), but the toolbar does not show it. On macOS 14,
+/// which cannot hide it, the title is left empty.
+private struct HiddenToolbarTitle: ViewModifier {
+    let title: String
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.navigationTitle(title).toolbar(removing: .title)
+        } else {
+            content.navigationTitle("")
+        }
+    }
+}
+
+/// Follows whether the window of this view is in full screen.
+private struct FullScreenReader: NSViewRepresentable {
+    @Binding var isFullScreen: Bool
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        let coordinator = context.coordinator
+        coordinator.view = view
+        for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+            let center = NotificationCenter.default
+            coordinator.observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak coordinator] note in
+                MainActor.assumeIsolated {
+                    guard let coordinator, let window = note.object as? NSWindow, window === coordinator.view?.window else { return }
+                    coordinator.isFullScreen.wrappedValue = name == NSWindow.didEnterFullScreenNotification
+                }
+            })
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.isFullScreen = $isFullScreen
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.observers.forEach(NotificationCenter.default.removeObserver)
+        coordinator.observers = []
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(isFullScreen: $isFullScreen) }
+
+    @MainActor
+    final class Coordinator {
+        weak var view: NSView?
+        var isFullScreen: Binding<Bool>
+        var observers: [NSObjectProtocol] = []
+
+        init(isFullScreen: Binding<Bool>) {
+            self.isFullScreen = isFullScreen
+        }
+    }
+}
+
 /// Loads the record of an item that is not in memory yet, then shows the right page.
 struct ItemLoaderView: View {
     @Environment(AppModel.self) private var model
@@ -310,4 +361,8 @@ extension EnvironmentValues {
     /// periodically also reads `model.playback` (an environment value changed at the root would make the whole
     /// interface walk through it at every open and close of the player).
     @Entry var isPageVisible = true
+    /// Margins of the pages (sidebar, top of the window): for what goes under them on purpose, like the home
+    /// banner, while its text stays clear.
+    @Entry var pageMargins = EdgeInsets()
+    @Entry var hasWindowControlsOverPage = false
 }

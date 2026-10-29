@@ -60,7 +60,7 @@ Homebrew does this step for you.
 
 ## Privacy
 
-Playfin only talks to your own Jellyfin server. There are no analytics and no third-party services. Your login token is stored in the macOS Keychain and never appears in logs or diagnostic exports.
+Playfin only talks to your own Jellyfin server. There are no analytics and no third-party services. Your login token is stored in a file of the app's folder that only your macOS account can read, left out of backups, and never appears in logs or diagnostic exports.
 
 ## Building from source
 

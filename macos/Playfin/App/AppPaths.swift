@@ -3,7 +3,7 @@ import Foundation
 /// Every location used by the app, in one place.
 ///
 /// During unit tests (the app hosts the tests), **nothing** may touch the real user data: profiles, settings,
-/// caches, Keychain and preferences are redirected to a temporary folder specific to the test process.
+/// caches, sessions and preferences are redirected to a temporary folder specific to the test process.
 /// Without this, a test that cleared the profiles used to erase the user's real ones.
 enum AppPaths {
     static let bundleName = "com.playfin.app"
@@ -42,8 +42,9 @@ enum AppPaths {
         return dir
     }
 
-    /// Keychain service: separate during tests.
-    static var keychainService: String {
+    /// Name of the sessions file and of its preferences (also the Keychain service of the older versions):
+    /// separate during tests.
+    static var sessionService: String {
         isRunningTests ? "\(bundleName).tests" : bundleName
     }
 

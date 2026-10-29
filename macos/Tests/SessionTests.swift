@@ -4,7 +4,7 @@ import os
 import XCTest
 @testable import Playfin
 
-/// Sign-in, Quick Connect, profiles, Keychain session and device identity.
+/// Sign-in, Quick Connect, profiles, sessions file and device identity.
 final class SessionTests: AppTestCase {
     func testProfileStoreAndMultiAddress() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("jn-test-\(UUID().uuidString)")
@@ -301,6 +301,62 @@ final class SessionTests: AppTestCase {
         ]
         XCTAssertEqual(SecItemCopyMatching(legacyQuery as CFDictionary, nil), errSecItemNotFound)
         XCTAssertEqual(SessionStore.load()?.userId, "user-old")
+    }
+
+    func testSessionsAreInAFileReadableOnlyByTheUserAndNotInTheKeychain() throws {
+        let service = "com.playfin.app.test.\(UUID().uuidString)"
+        SessionStore.setServiceName(service)
+        defer {
+            SessionStore.delete()
+            SessionStore.setServiceName(nil)
+        }
+        let info = SessionInfo(serverUrl: "http://127.0.0.1:1", serverId: "srv-f", userId: "user-f", accessToken: "tok-f")
+        XCTAssertTrue(SessionStore.save(info))
+
+        let file = AppPaths.supportDirectory.appendingPathComponent("tokens-\(service).json")
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        XCTAssertEqual(try file.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+
+        let keychainQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+        ]
+        XCTAssertEqual(SecItemCopyMatching(keychainQuery as CFDictionary, nil), errSecItemNotFound)
+        XCTAssertEqual(SessionStore.load()?.accessToken, "tok-f")
+    }
+
+    func testSessionStoreMovesTheKeychainTokensToTheFileOnce() throws {
+        let service = "com.playfin.app.test.\(UUID().uuidString)"
+        SessionStore.setServiceName(service)
+        defer {
+            SessionStore.delete()
+            SessionStore.setServiceName(nil)
+        }
+        // A version that used the Keychain: two profiles and the old pointer to the active one.
+        func addToKeychain(_ account: String, _ value: String) {
+            let add: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
+                kSecValueData as String: Data(value.utf8),
+            ]
+            XCTAssertEqual(SecItemAdd(add as CFDictionary, nil), errSecSuccess)
+        }
+        addToKeychain("srv-k:user-1", #"{"serverUrl":"http://127.0.0.1:1","serverId":"srv-k","userId":"user-1","accessToken":"tok-1"}"#)
+        addToKeychain("srv-k:user-2", #"{"serverUrl":"http://127.0.0.1:1","serverId":"srv-k","userId":"user-2","accessToken":"tok-2"}"#)
+        addToKeychain("active", "srv-k:user-2")
+
+        XCTAssertEqual(SessionStore.load()?.accessToken, "tok-2", "the old active session stays active")
+        XCTAssertEqual(SessionStore.load(serverId: "srv-k", userId: "user-1")?.accessToken, "tok-1")
+
+        let keychainQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+        ]
+        XCTAssertEqual(SecItemCopyMatching(keychainQuery as CFDictionary, nil), errSecItemNotFound,
+                       "nothing left in the Keychain")
+        SessionStore.delete(serverId: "srv-k", userId: "user-1")
     }
 
     @MainActor

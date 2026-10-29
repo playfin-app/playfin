@@ -38,9 +38,9 @@ Bug patterns encountered in this project. Developers must read these before each
 - **Check:** Keep Swift UI thin (presentation & platform events). Keep pure Rust logic decoupled from direct filesystem/network I/O.
 
 ### 8. Installation-Unique Identifiers & Secure Testing
-- **Rule:** Device IDs must be uniquely generated per installation. Tests must never modify live user Keychain/AppSupport files.
+- **Rule:** Device IDs must be uniquely generated per installation. Tests must never modify live user session/AppSupport files.
 - **Why:** Hardcoded device IDs kick other sessions on the server. Unisolated tests log the developer out on each test run.
-- **Check:** Inject sandbox paths/Keychain service names in test runners. Generate UUID for `DEVICE_ID` on first launch.
+- **Check:** Inject sandbox paths/session service names in test runners. Generate UUID for `DEVICE_ID` on first launch.
 
 ### 9. Hidden Panics & Direct Unwraps
 - **Rule:** Deny `unwrap()` and hidden panics like `Client::builder().build().unwrap_or_default()`.
@@ -48,7 +48,7 @@ Bug patterns encountered in this project. Developers must read these before each
 - **Check:** Run Clippy with `unwrap_used` denied. Map all fallible builders to `JellyfinError`.
 
 ### 10. Storage Key and Identifier Migrations
-- **Rule:** Changing storage keys (Keychain account, settings) or device IDs must include an automatic migration step.
+- **Rule:** Changing storage keys (session keys, settings) or device IDs must include an automatic migration step.
 - **Why:** Unmigrated key changes invalidate existing user sessions and force an unexpected logout upon upgrade.
 - **Check:** Read legacy keys once, migrate values to new keys, and add automated regression tests for legacy state.
 
@@ -127,9 +127,9 @@ Bug patterns encountered in this project. Developers must read these before each
 - **Why:** Treating a cancelled task as a network failure causes false offline states, unnecessary alerts, or spawned background probers when tasks are legitimately cancelled. Swallowing `Unauthorized` on cancellation drops expired session handling.
 - **Check:** Ensure catch blocks for network errors check `if Task.isCancelled { return ... }` specifically within `.Network, .ServerUnreachable` branches before modifying offline state.
 
-### 26. Always Isolate Keychain and Storage Even in State-Only Tests
-- **Rule:** Any test that calls methods that indirectly invoke `SessionStore.delete()`, `SessionStore.save()`, `ProfileStore.saveProfile()`, or `model.logout()` / `model.reset()` must isolate Keychain service name via `SessionStore.setServiceName(...)` and storage directory via `ProfileStore.setStorageDirectory(...)`.
-- **Why:** In Swift/macOS unit tests, calls to `SessionStore` without an isolated service name operate against the live developer keychain (`com.playfin.app`), immediately logging the developer out and wiping their local dev session on every test run.
+### 26. Always Isolate Sessions and Storage Even in State-Only Tests
+- **Rule:** Any test that calls methods that indirectly invoke `SessionStore.delete()`, `SessionStore.save()`, `ProfileStore.saveProfile()`, or `model.logout()` / `model.reset()` must isolate the session service name via `SessionStore.setServiceName(...)` and storage directory via `ProfileStore.setStorageDirectory(...)`.
+- **Why:** In Swift/macOS unit tests, calls to `SessionStore` without an isolated service name operate against the live developer sessions (`com.playfin.app`), immediately logging the developer out and wiping their local dev session on every test run.
 - **Check:** Inject unique UUID-based service names and temporary directories with `defer` cleanups in any test invoking logout/session/profile flows.
 
 ### 27. Cancellation Test Error Path Exercise
@@ -146,6 +146,6 @@ Bug patterns encountered in this project. Developers must read these before each
 - **Rule:** Avoid duplicating identical multi-case error dispatch logic (network vs auth vs server error vs cancellation) across multiple async methods or call sites. Centralize error dispatch in a single helper method (e.g. `handleAsyncOperationError`).
 - **Why:** Duplicating complex error classification across multiple functions (`handleNetworkPathUpdate`, `probeAndRecover` address selection, `probeAndRecover` home probe) leads to subtle divergence, duplicated bug fixes, and requires writing extensive duplicated tests for every permutation on each call site.
 - **Check:** Route all async network operation errors through a centralized handler that enforces uniform cancellation and error classification semantics.
-- **Tests and real data**: the app hosts the tests; every path (profiles, settings, caches, Keychain, preferences) goes through `AppPaths`, which switches to a temporary folder during the tests. Never write to `~/Library` directly.
+- **Tests and real data**: the app hosts the tests; every path (profiles, settings, caches, sessions, preferences) goes through `AppPaths`, which switches to a temporary folder during the tests. Never write to `~/Library` directly.
 - **Lock taken twice (Rust)**: `if let Ok(x) = mutex.lock()…` keeps the lock for the whole block; a second `lock()` inside the block blocks forever. Bind the result before the `if let`.
 - **mpv `keep-open=yes`**: no end-of-file event; observe `eof-reached`.

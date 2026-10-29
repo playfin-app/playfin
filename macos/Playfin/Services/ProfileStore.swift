@@ -2,7 +2,7 @@ import Foundation
 
 /// Storage of server profiles and their addresses (local and remote).
 /// The business logic, serialisation and address hierarchy
-/// are handled by the Rust core (`ProfileStoreCore`), while tokens stay in the Keychain.
+/// are handled by the Rust core (`ProfileStoreCore`), while tokens stay in `SessionStore`.
 enum ProfileStore {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var customDirectory: URL?

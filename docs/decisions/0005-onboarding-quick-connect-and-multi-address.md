@@ -25,7 +25,7 @@ Onboarding for first launch requires:
 
 ### 3. Multi-Address Profile Storage & Address Probing
 - Non-secret server profiles and ordered addresses are managed via `ProfileStore.swift` stored in `Application Support/com.playfin.app/profiles.json`.
-- Access tokens strictly remain inside macOS Keychain via `SessionStore.swift`.
+- Access tokens are only kept by `SessionStore.swift` (Keychain at first, a file readable by the user only since decision 0013).
 - When adding a secondary address, the core verifies that the server's unique ID matches the active profile's `serverId`, preventing accidental mix-ups.
 - At launch and profile activation, if multiple addresses exist, `selectBestAddress` probes all addresses in parallel with a 1.5s timeout, prioritizing low-latency LAN addresses while falling back to remote addresses when off-site.
 

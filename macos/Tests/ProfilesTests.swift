@@ -117,7 +117,7 @@ final class ProfilesTests: XCTestCase {
         AppPaths.supportDirectoryOverride = nil
         defer { AppPaths.supportDirectoryOverride = nil }
         XCTAssertTrue(AppPaths.supportDirectory.path.hasPrefix(temp), "profiles and settings outside the real folder")
-        XCTAssertNotEqual(AppPaths.keychainService, AppPaths.bundleName, "separate Keychain during the tests")
+        XCTAssertNotEqual(AppPaths.sessionService, AppPaths.bundleName, "separate sessions during the tests")
     }
 
     func testAMissingProfileIsRecreatedFromTheOpenSession() throws {

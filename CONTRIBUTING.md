@@ -23,7 +23,7 @@ macos/Playfin/           SwiftUI app
 ├── App/                     entry point, paths, device identity, diagnostics
 ├── Model/                   AppModel (state in AppModel.swift, behaviour in AppModel+<topic>.swift),
 │                            SettingsModel, DownloadsModel
-├── Services/                Keychain session, profiles file, network monitor, image cache
+├── Services/                sessions file, profiles file, network monitor, image cache
 ├── Features/<Screen>/       one folder per screen: Login, Navigation, Home, Library, Detail,
 │                            Search, Downloads, Player, Settings
 ├── Shared/                  reusable views (cards, artwork, buttons) and Theme
@@ -61,4 +61,4 @@ We follow the [Conventional Commits](https://www.conventionalcommits.org/) speci
 
 ### Security
 - Never commit secrets, server URLs, passwords, or access tokens.
-- Authentication tokens must always be kept in secure local storage or Keychain.
+- Authentication tokens are only kept by `SessionStore` (file readable by the user only, see `docs/decisions/0013`).

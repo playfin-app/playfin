@@ -135,6 +135,25 @@ final class ItemTests: AppTestCase {
         XCTAssertTrue(try XCTUnwrap(model.imageURL(episode, .primary, height: 450)).absoluteString.hasSuffix("&tag=own"))
         XCTAssertTrue(try XCTUnwrap(model.imageURL(episode, .backdrop, height: 360)).absoluteString.hasSuffix("&tag=ownbd"))
     }
+
+    func testRecentlyAddedEpisodesAndSeasonsOpenTheirSeries() {
+        func item(_ type: String, seriesId: String?) -> Movie {
+            Movie(
+                id: "item-1", name: "x", sortName: nil, productionYear: nil, premiereDate: nil,
+                runTimeTicks: nil, container: nil, overview: nil, communityRating: nil,
+                criticRating: nil, officialRating: nil, genres: [], dateCreated: nil,
+                people: [], userData: nil, seriesName: nil, seriesId: seriesId, seasonId: nil,
+                seasonName: nil, indexNumber: nil, parentIndexNumber: nil, itemType: type,
+                width: nil, height: nil, primaryBlurHash: nil, primaryImageAspectRatio: nil,
+                imageTags: [], backdropImageTags: [], seriesPrimaryImageTag: nil, parentBackdropImageTags: []
+            )
+        }
+        XCTAssertEqual(item("Episode", seriesId: "series-9").seriesPageId, "series-9")
+        XCTAssertEqual(item("Season", seriesId: "series-9").seriesPageId, "series-9")
+        XCTAssertEqual(item("Series", seriesId: "series-9").seriesPageId, "item-1")
+        XCTAssertEqual(item("Movie", seriesId: nil).seriesPageId, "item-1")
+        XCTAssertEqual(item("Episode", seriesId: "").seriesPageId, "item-1", "no series known: the item itself")
+    }
 }
 
 /// "Mark as unwatched" on a started item: it starts again from the beginning.

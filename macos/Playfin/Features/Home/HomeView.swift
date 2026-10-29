@@ -71,10 +71,10 @@ struct HomeView: View {
                 posterRow("Favourites", items: Array(model.favorites.prefix(20)))
             }
             if model.latestByLibrary.isEmpty {
-                if !model.latest.isEmpty { posterRow("Recently added", items: model.latest) }
+                if !model.latest.isEmpty { posterRow("Recently added", items: model.latest, opensSeries: true) }
             } else {
                 ForEach(model.latestByLibrary, id: \.library.id) { row in
-                    posterRow("Recently added in \(row.library.name)", items: row.items)
+                    posterRow("Recently added in \(row.library.name)", items: row.items, opensSeries: true)
                 }
             }
         }
@@ -91,11 +91,12 @@ struct HomeView: View {
         }
     }
 
-    private func posterRow(_ title: String, items: [Movie]) -> some View {
+    /// `opensSeries`: an episode or a season opens its series ("Recently added", see `Movie.seriesPageId`).
+    private func posterRow(_ title: String, items: [Movie], opensSeries: Bool = false) -> some View {
         let ratio = Movie.commonCardAspectRatio(of: items)
         return Shelf(title: title, cardWidth: Theme.Layout.posterWidth) {
             ForEach(items, id: \.id) { movie in
-                RouteLink(value: Route.movie(movie.id)) {
+                RouteLink(value: Route.movie(opensSeries ? movie.seriesPageId : movie.id)) {
                     ShelfCard(base: Theme.Layout.posterWidth) {
                         PosterCard(movie: movie, imageHeight: 450, aspectRatio: ratio).frame(width: $0)
                     }

@@ -87,6 +87,13 @@ extension Movie {
         return name
     }
 
+    /// Page of the series for an episode or a season, the item itself otherwise. In "Recently added", Jellyfin returns
+    /// a lone new episode instead of its series: its card shows the series (poster, title), so it opens the series.
+    var seriesPageId: String {
+        if !isSeries, let seriesId, !seriesId.isEmpty { return seriesId }
+        return id
+    }
+
     /// Subtitle for episodes: "S1:E3 · Episode title"
     var episodeSubtitle: String? {
         guard let series = seriesName, !series.isEmpty else { return nil }

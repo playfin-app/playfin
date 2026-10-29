@@ -647,23 +647,11 @@ final class MPVLayer: CAOpenGLLayer {
 
     init(mpv: OpaquePointer, floatingPoint: Bool = false) {
         self.mpv = mpv
-        // Floating point first if HDR is wanted; a GPU that refuses it gets the usual 8-bit format (no HDR then).
-        let base: [CGLPixelFormatAttribute] = [
-            kCGLPFAOpenGLProfile, CGLPixelFormatAttribute(kCGLOGLPVersion_3_2_Core.rawValue),
-            kCGLPFADoubleBuffer, kCGLPFAAccelerated, kCGLPFAAllowOfflineRenderers,
-        ]
-        let floatAttributes = base + [kCGLPFAColorFloat, kCGLPFAColorSize, CGLPixelFormatAttribute(64)]
-        func choose(_ attributes: [CGLPixelFormatAttribute]) -> CGLPixelFormatObj? {
-            var format: CGLPixelFormatObj?
-            var count: GLint = 0
-            CGLChoosePixelFormat(attributes + [CGLPixelFormatAttribute(0)], &format, &count)
-            return format
-        }
-        let floatFormat = floatingPoint ? choose(floatAttributes) : nil
-        isFloatingPoint = floatFormat != nil
-        guard let resolvedPixelFormat = floatFormat ?? choose(base) else {
+        guard let chosen = Self.choosePixelFormat(floatingPoint: floatingPoint) else {
             fatalError("Could not choose the OpenGL pixel format")
         }
+        isFloatingPoint = chosen.isFloatingPoint
+        let resolvedPixelFormat = chosen.format
         var glContext: CGLContextObj?
         CGLCreateContext(resolvedPixelFormat, nil, &glContext)
         guard let resolvedContext = glContext else {
@@ -683,6 +671,31 @@ final class MPVLayer: CAOpenGLLayer {
         // The last frame keeps its proportions while it is scaled during a suspended resize.
         contentsGravity = .resizeAspect
         createRenderContext()
+    }
+
+    /// OpenGL pixel format, best first: floating point (HDR) if wanted, then the usual 8-bit one, on the GPU; then
+    /// the same with Apple's software renderer, for a Mac without graphics acceleration (a virtual machine, such as
+    /// the CI runners), which otherwise could not play at all.
+    static func choosePixelFormat(floatingPoint: Bool, allowAccelerated: Bool = true)
+        -> (format: CGLPixelFormatObj, isFloatingPoint: Bool)? {
+        let base: [CGLPixelFormatAttribute] = [
+            kCGLPFAOpenGLProfile, CGLPixelFormatAttribute(kCGLOGLPVersion_3_2_Core.rawValue),
+            kCGLPFADoubleBuffer, kCGLPFAAllowOfflineRenderers,
+        ]
+        let float: [CGLPixelFormatAttribute] = [kCGLPFAColorFloat, kCGLPFAColorSize, CGLPixelFormatAttribute(64)]
+        let software: [CGLPixelFormatAttribute] = [kCGLPFARendererID, CGLPixelFormatAttribute(UInt32(kCGLRendererGenericFloatID))]
+        var candidates: [([CGLPixelFormatAttribute], Bool)] = []
+        for extra in (allowAccelerated ? [[kCGLPFAAccelerated], software] : [software]) {
+            if floatingPoint { candidates.append((base + extra + float, true)) }
+            candidates.append((base + extra, false))
+        }
+        for (attributes, isFloat) in candidates {
+            var format: CGLPixelFormatObj?
+            var count: GLint = 0
+            CGLChoosePixelFormat(attributes + [CGLPixelFormatAttribute(0)], &format, &count)
+            if let format { return (format, isFloat) }
+        }
+        return nil
     }
 
     override init(layer: Any) {

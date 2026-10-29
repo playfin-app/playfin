@@ -1,3 +1,4 @@
+import OpenGL.GL3
 import XCTest
 @testable import Playfin
 
@@ -494,6 +495,14 @@ final class PlayerWindowTests: AppTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.4)) // fade out
         XCTAssertFalse(window.isVisible)
         host.close()
+    }
+
+    func testAMacWithoutGraphicsAccelerationStillGetsAPixelFormat() throws {
+        // The CI runners have no GPU: the player crashed there ("Could not choose the OpenGL pixel format").
+        let software = try XCTUnwrap(MPVLayer.choosePixelFormat(floatingPoint: false, allowAccelerated: false))
+        CGLReleasePixelFormat(software.format)
+        let best = try XCTUnwrap(MPVLayer.choosePixelFormat(floatingPoint: true))
+        CGLReleasePixelFormat(best.format)
     }
 
     func testCloseFadesOutBeforeStoppingThePlayback() throws {

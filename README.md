@@ -4,7 +4,7 @@
 
 Playfin is an independent, open-source client for [Jellyfin](https://jellyfin.org) servers. It is not affiliated with or endorsed by the Jellyfin project. The interface is inspired by Plex on TVs: a big visual at the top, rows of posters, few screens, and playback one click away.
 
-> The interface is in English for version 1.0 (see `docs/decisions/0011-final-name-language-and-distribution.md`).
+> The interface is in English (see `docs/decisions/0011-final-name-language-and-distribution.md`).
 
 ![Home](docs/screenshots/home.png)
 

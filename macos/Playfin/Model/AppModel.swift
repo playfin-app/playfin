@@ -12,6 +12,7 @@ import os
 /// - `AppModel+Items`: known items, details, watched state, search, image URLs
 /// - `AppModel+Playback`: starting playback, next episode, progress reports
 /// - `AppModel+Profiles`: profile switcher and addresses
+/// - `AppModel+Featured`: titles of the home banner, picked at random
 ///
 /// Properties written by the extensions cannot be `private` (Swift limits `private` to one file).
 @MainActor
@@ -84,6 +85,11 @@ final class AppModel {
     var latest: [Movie] = []
     /// The user's favourites (home row).
     var favorites: [Movie] = []
+    /// Titles of the home banner, picked at random in the library (see `AppModel+Featured`).
+    var featured: [Movie] = []
+    /// True until the first choice of banner titles is made: the banner waits for it rather than showing other
+    /// titles that it would replace a moment later.
+    var isChoosingFeatured = true
     /// Last grid shown per library ("movies" for the Movies grid). The grids are built again in the background on
     /// each visit: showing this one meanwhile avoids a blank frame (a flicker) before the posters appear.
     @ObservationIgnored var gridCache: [String: CachedGrid] = [:]
@@ -180,8 +186,11 @@ final class AppModel {
         openRequests &+= 1
     }
 
-    /// The movies featured at the top of the home: first those in progress, then the new releases.
+    /// The titles of the home banner: picked at random. Without that choice (server unreachable at launch), those
+    /// in progress then the new releases.
     var heroMovies: [Movie] {
+        if !featured.isEmpty { return featured }
+        if isChoosingFeatured && client != nil { return [] }
         var seen = Set<String>()
         let candidates: [Movie] = Array(resume.prefix(3)) + Array(nextUp.prefix(2)) + latest
         return Array(candidates.filter { seen.insert($0.id).inserted }.prefix(5))

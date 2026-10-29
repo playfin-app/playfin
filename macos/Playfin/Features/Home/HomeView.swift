@@ -5,10 +5,11 @@ import AppKit
 /// (Continue, Up next, then "Recently added" for each library).
 struct HomeView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
-            if model.heroMovies.isEmpty {
+            if model.heroMovies.isEmpty && !model.isChoosingFeatured {
                 ErrorStateView(
                     title: model.isServerUnreachable ? "No saved content" : "Nothing to show yet",
                     message: EmptyStateText.message(
@@ -23,7 +24,12 @@ struct HomeView: View {
                     // Not lazy (a few rows of at most ~20 cards): the prefetch of a LazyVStack never settled
                     // here during playback and froze the app (two `sample`s of the frozen app).
                     VStack(alignment: .leading, spacing: 30) {
-                        HeroBanner(movies: model.heroMovies)
+                        if model.heroMovies.isEmpty {
+                            // The first titles of the banner are on their way: their place is kept.
+                            Color.clear.containerRelativeFrame(.vertical) { height, _ in max(400, height * 0.58) }
+                        } else {
+                            HeroBanner(movies: model.heroMovies)
+                        }
 
                         if !model.resume.isEmpty {
                             continueRow("Continue watching", items: model.resume)
@@ -48,6 +54,17 @@ struct HomeView: View {
             }
         }
         .background(Theme.Colors.background)
+        // Banner titles: the current choice at once, then a new one every 30 minutes while the app is active.
+        .task(id: scenePhase == .active) {
+            await model.loadFeatured()
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                // At least a minute between two tries (offline, the choice cannot be renewed).
+                try? await Task.sleep(for: .seconds(max(60, model.featuredTimeLeft + 1)))
+                guard !Task.isCancelled else { return }
+                await model.loadFeatured()
+            }
+        }
     }
 
     private func continueRow(_ title: String, items: [Movie]) -> some View {
@@ -377,6 +394,7 @@ struct HeroBanner: View {
     @Environment(\.scenePhase) private var scenePhase
 
     private var current: Movie { movies[min(index, movies.count - 1)] }
+    private var movieIds: [String] { movies.map(\.id) }
 
     var body: some View {
         let movie = current
@@ -481,6 +499,8 @@ struct HeroBanner: View {
                 }
             }
             .onHover { isHovered = $0 }
+            // New titles (every 30 minutes): from the first one.
+            .onChange(of: movieIds) { _, _ in index = 0 }
             // Preloads the next image and its framing: the fade goes to a real image already framed, not to a
             // BlurHash then a jump.
             .task(id: index) {

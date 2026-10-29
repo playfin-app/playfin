@@ -39,6 +39,57 @@ final class ModelTests: AppTestCase {
         XCTAssertEqual(model.goBackRequests, 1)
     }
 
+    private func featuredCandidate(_ id: String, watched: Bool = false, backdrop: Bool = true) -> Movie {
+        Movie(
+            id: id, name: id, sortName: nil, productionYear: nil, premiereDate: nil,
+            runTimeTicks: nil, container: nil, overview: nil, communityRating: nil,
+            criticRating: nil, officialRating: nil, genres: [], dateCreated: nil,
+            people: [], userData: UserData(playbackPositionTicks: 0, played: watched, playedPercentage: nil, isFavorite: false),
+            seriesName: nil, seriesId: nil, seasonId: nil,
+            seasonName: nil, indexNumber: nil, parentIndexNumber: nil, itemType: "Movie",
+            width: nil, height: nil, primaryBlurHash: nil, primaryImageAspectRatio: nil,
+            backdropImageTags: backdrop ? ["tag"] : []
+        )
+    }
+
+    /// Banner titles: with a background image, not in progress, unwatched first, five at most, each once.
+    @MainActor
+    func testFeaturedTitlesAreUnwatchedWithABackgroundAndNotInProgress() {
+        let candidates = [
+            featuredCandidate("watched", watched: true),
+            featuredCandidate("noBackdrop", backdrop: false),
+            featuredCandidate("inProgress"),
+            featuredCandidate("a"), featuredCandidate("a"),
+            featuredCandidate("b"), featuredCandidate("c"), featuredCandidate("d"), featuredCandidate("e"),
+            featuredCandidate("f")
+        ]
+        let picked = AppModel.pickFeatured(from: candidates, excluding: ["inProgress"])
+        XCTAssertEqual(picked.map(\.id), ["a", "b", "c", "d", "e"])
+
+        // A small library: the watched titles complete the banner.
+        let few = AppModel.pickFeatured(from: [featuredCandidate("watched", watched: true), featuredCandidate("a")], excluding: [])
+        XCTAssertEqual(few.map(\.id), ["a", "watched"])
+    }
+
+    /// The same titles come back for 30 minutes, then a new choice is made.
+    func testFeaturedChoiceLastsThirtyMinutes() {
+        let now = Date()
+        XCTAssertTrue(AppModel.FeaturedChoice(ids: ["a"], chosenAt: now.addingTimeInterval(-29 * 60)).isFresh(at: now))
+        XCTAssertFalse(AppModel.FeaturedChoice(ids: ["a"], chosenAt: now.addingTimeInterval(-31 * 60)).isFresh(at: now))
+        // A date in the future (clock changed): renewed.
+        XCTAssertFalse(AppModel.FeaturedChoice(ids: ["a"], chosenAt: now.addingTimeInterval(60)).isFresh(at: now))
+    }
+
+    /// Without a server, the banner shows the titles in progress (the random choice needs the server).
+    @MainActor
+    func testBannerFallsBackToTitlesInProgressWithoutAChoice() {
+        let model = AppModel()
+        model.resume = [featuredCandidate("resume")]
+        XCTAssertEqual(model.heroMovies.map(\.id), ["resume"])
+        model.featured = [featuredCandidate("random")]
+        XCTAssertEqual(model.heroMovies.map(\.id), ["random"])
+    }
+
     /// The pages get the toolbar and sidebar margins from the main view (see `LibraryView.pageStack`).
     @MainActor
     func testPageMarginsAreTheGapBetweenTheUsableAreaAndTheColumn() {

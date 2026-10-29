@@ -385,6 +385,8 @@ extension AppModel {
         nextUp = []
         latest = []
         favorites = []
+        featured = []
+        isChoosingFeatured = true
         gridCache = [:]
         known = [:]
         playback = nil

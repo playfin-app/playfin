@@ -273,6 +273,10 @@ final class MPVNSView: NSView {
         updatePlaybackState()
     }
 
+    func setProperty(_ name: String, to value: String) {
+        command(["set", name, value])
+    }
+
     func setAspectRatio(_ ratio: String) {
         command(["set", "video-aspect-override", ratio])
     }

@@ -57,6 +57,8 @@ struct SidebarView: View {
             Section("Discover") {
                 Label("Search", systemImage: "magnifyingglass")
                     .tag(AppModel.SidebarSection.search)
+                Label("Favourites", systemImage: "heart")
+                    .tag(AppModel.SidebarSection.favorites)
                 // Always visible, even offline: this is what can be watched without a server.
                 Label {
                     HStack {

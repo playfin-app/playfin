@@ -202,3 +202,27 @@ enum TrackMemory {
         return .some((sameKind ?? matching.first)?.id)
     }
 }
+
+/// Subtitle style changed during playback (pure functions, tested).
+enum SubtitleStyle {
+    /// The properties of the style. The core only gives the background ones when there is a background:
+    /// they are first set back to mpv's defaults, otherwise "None" would keep the old box.
+    static let defaults: [(String, String)] = [("sub-border-style", "outline-and-shadow"), ("sub-back-color", "#00000000")]
+    private static let names: Set<String> = ["sub-font-size", "sub-color", "sub-border-style", "sub-back-color"]
+
+    static func liveOptions(settings: AppSettings) -> [(String, String)] {
+        defaults + mpvOptions(settings: settings, systemLanguages: [])
+            .filter { names.contains($0.name) }
+            .map { ($0.name, $0.value) }
+    }
+
+    /// ± 10 s at most, rounded to the tenth (the buttons move by 0.1 s).
+    static func clampedDelay(_ seconds: Double) -> Double {
+        (min(10, max(-10, seconds)) * 10).rounded() / 10
+    }
+
+    /// "+0.3 s", "-1.5 s", "0 s".
+    static func delayLabel(_ seconds: Double) -> String {
+        seconds == 0 ? "0 s" : String(format: "%+.1f s", seconds)
+    }
+}

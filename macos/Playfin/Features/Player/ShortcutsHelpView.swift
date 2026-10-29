@@ -6,7 +6,7 @@ struct ShortcutsHelpView: View {
 
     private let sections: [(title: String, items: [(keys: String, action: String)])] = [
         ("Navigation", [
-            ("⌘1", "Home"), ("⌘2", "Library"), ("⌘3", "Downloads"), ("⌘F", "Search"), ("⇧⌘A", "Add a server address"),
+            ("⌘1", "Home"), ("⌘2", "Library"), ("⌘3", "Downloads"), ("⌘4", "Favourites"), ("⌘F", "Search"), ("⇧⌘A", "Add a server address"),
             ("⌃⌘1 to ⌃⌘9", "Switch profile"), ("⌘,", "Settings"), ("Space", "Play the selected item"),
             ("Esc", "Back")
         ]),

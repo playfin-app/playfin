@@ -171,6 +171,14 @@ struct SeriesDetailView: View {
                 action: toggleWatched
             )
 
+            DetailCircleButton(
+                systemName: currentSeries.isFavorite ? "heart.fill" : "heart",
+                tint: currentSeries.isFavorite ? Theme.Colors.favorite : .white,
+                caption: "Favourite",
+                help: currentSeries.isFavorite ? "Remove from favourites" : "Add to favourites",
+                action: toggleFavorite
+            )
+
             DownloadButton(item: currentSeries, seasonId: selectedSeasonId)
         }
         .fixedSize()
@@ -254,6 +262,7 @@ struct SeriesDetailView: View {
     }
 
     private func toggleWatched() { Task { await model.toggleWatched(currentSeries) } }
+    private func toggleFavorite() { Task { await model.toggleFavorite(currentSeries) } }
 
     private func loadSeasons() async {
         // The known seasons show right away, the server updates afterwards.

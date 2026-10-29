@@ -116,6 +116,14 @@ struct MovieDetailView: View {
                 action: toggleWatched
             )
 
+            DetailCircleButton(
+                systemName: currentMovie.isFavorite ? "heart.fill" : "heart",
+                tint: currentMovie.isFavorite ? Theme.Colors.favorite : .white,
+                caption: "Favourite",
+                help: currentMovie.isFavorite ? "Remove from favourites" : "Add to favourites",
+                action: toggleFavorite
+            )
+
             DownloadButton(item: currentMovie)
         }
         .fixedSize()
@@ -148,6 +156,7 @@ struct MovieDetailView: View {
     }
 
     private func toggleWatched() { Task { await model.toggleWatched(currentMovie) } }
+    private func toggleFavorite() { Task { await model.toggleFavorite(currentMovie) } }
 }
 
 /// Shows the official movie logo (ClearLogo) if it exists in Jellyfin,

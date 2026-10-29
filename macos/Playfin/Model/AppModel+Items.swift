@@ -54,7 +54,8 @@ extension AppModel {
 
         // Immediate local optimistic update
         var updatedMovie = movie
-        let optimistic = UserData(playbackPositionTicks: 0, played: watched, playedPercentage: watched ? 100.0 : nil)
+        let optimistic = UserData(playbackPositionTicks: 0, played: watched, playedPercentage: watched ? 100.0 : nil,
+                                  isFavorite: movie.isFavorite)
         updatedMovie.userData = optimistic
 
         let removedResume = resume.firstIndex(where: { $0.id == movie.id }).map { (index: $0, item: resume[$0]) }
@@ -89,6 +90,39 @@ extension AppModel {
         }
     }
 
+    /// Heart button of the pages: adds to or removes from the favourites, on the server and at once in the interface.
+    func toggleFavorite(_ movie: Movie) async {
+        guard let client else { return }
+        let favorite = !movie.isFavorite
+        var updated = movie
+        var data = movie.userData ?? UserData(playbackPositionTicks: 0, played: false, playedPercentage: nil)
+        data.isFavorite = favorite
+        updated.userData = data
+        let oldFavorites = favorites
+        replaceEverywhere(updated)
+        // Removed first in both cases: a page a little behind the server must not add it twice.
+        favorites.removeAll(where: { $0.id == movie.id })
+        if favorite { favorites.insert(updated, at: 0) }
+
+        do {
+            if favorite {
+                try await client.markAsFavorite(itemId: movie.id)
+            } else {
+                try await client.unmarkAsFavorite(itemId: movie.id)
+            }
+        } catch {
+            if isSessionExpired(error) {
+                fail(error)
+                return
+            }
+            logger.error("Failed to change the favourite: \(error.localizedDescription, privacy: .private)")
+            // Roll back only if nobody changed it again meanwhile.
+            guard self.movie(id: movie.id)?.isFavorite == favorite else { return }
+            replaceEverywhere(movie)
+            favorites = oldFavorites
+        }
+    }
+
     /// Replaces an item in all the lists that display it, without reloading from the server.
     func replaceEverywhere(_ updated: Movie) {
         remember([updated])
@@ -97,6 +131,7 @@ extension AppModel {
         if let idx = resume.firstIndex(where: { $0.id == updated.id }) { resume[idx] = updated }
         if let idx = nextUp.firstIndex(where: { $0.id == updated.id }) { nextUp[idx] = updated }
         if let idx = latest.firstIndex(where: { $0.id == updated.id }) { latest[idx] = updated }
+        if let idx = favorites.firstIndex(where: { $0.id == updated.id }) { favorites[idx] = updated }
     }
 
     enum SearchOutcome {

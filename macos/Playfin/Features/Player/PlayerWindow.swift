@@ -29,13 +29,12 @@ final class PlayerWindowController: NSObject, NSWindowDelegate {
         // The window decides its size, not the content.
         hosting.sizingOptions = []
 
-        let window = NSWindow(contentViewController: hosting)
+        let window = PlayerWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.backgroundColor = .black
         window.title = Self.title(for: model.playback?.movie)
-        window.contentMinSize = NSSize(width: 640, height: 360)
         window.collectionBehavior.insert(.fullScreenPrimary)
         // Never reopened at the next launch (macOS window restoration).
         window.isRestorable = false
@@ -55,6 +54,9 @@ final class PlayerWindowController: NSObject, NSWindowDelegate {
             window.toggleFullScreen(nil)
         }
     }
+
+    /// Below this size the bottom bar (volume, centred transport, speed) overlaps itself.
+    static let minimumSize = NSSize(width: 800, height: 450)
 
     /// Window title: "Alone · S3:E1 · A New Land" for an episode, the name for a movie.
     static func title(for movie: Movie?) -> String {
@@ -79,6 +81,13 @@ final class PlayerWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Keeps the window above its minimum size while the user resizes it (see `PlayerWindow`).
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        guard let minimum = (sender as? PlayerWindow)?.minimumContentSize else { return frameSize }
+        let minimumFrame = sender.frameRect(forContentRect: NSRect(origin: .zero, size: minimum)).size
+        return NSSize(width: max(frameSize.width, minimumFrame.width), height: max(frameSize.height, minimumFrame.height))
+    }
+
     /// Back from full screen: macOS rebuilds the title bar, the buttons stay hidden.
     func windowDidExitFullScreen(_ notification: Notification) {
         if let window { Self.hideWindowButtons(of: window) }
@@ -90,6 +99,12 @@ final class PlayerWindowController: NSObject, NSWindowDelegate {
         hostWindow?.makeKeyAndOrderFront(nil)
         if model?.playback != nil { model?.playback = nil }
     }
+}
+
+/// The player window. SwiftUI's hosting resets `contentMinSize` to zero after the first layout: the minimum is
+/// kept here instead and enforced by `PlayerWindowController.windowWillResize`.
+final class PlayerWindow: NSWindow {
+    var minimumContentSize = PlayerWindowController.minimumSize
 }
 
 /// Content of the player window: the player of the current playback (black between two items).
@@ -149,5 +164,73 @@ struct HostWindowReader: NSViewRepresentable {
             super.viewDidMoveToWindow()
             if let window { onWindow?(window) }
         }
+    }
+}
+
+/// Picture in picture: the player window becomes small, floats above the other windows (other apps too) and
+/// follows on every desktop. The system PiP only takes AVPlayer pictures; mpv draws its own with OpenGL.
+@MainActor
+enum MiniPlayer {
+    static let size = NSSize(width: 480, height: 270)
+    /// The compact controls (play, close, seek bar) still fit.
+    static let minimumSize = NSSize(width: 320, height: 180)
+    private static let margin: CGFloat = 20
+
+    /// Small window in the bottom-right corner of the screen. Returns the frame to give back on exit.
+    /// In full screen, we first leave it (macOS animation), then shrink.
+    static func enter(_ window: NSWindow, onEntered: @escaping @MainActor (NSRect) -> Void) {
+        if window.styleMask.contains(.fullScreen) {
+            var observer: NSObjectProtocol?
+            observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
+            ) { _ in
+                if let observer { NotificationCenter.default.removeObserver(observer) }
+                MainActor.assumeIsolated { onEntered(shrink(window)) }
+            }
+            window.toggleFullScreen(nil)
+        } else {
+            onEntered(shrink(window))
+        }
+    }
+
+    /// Back to the normal player, where it was before.
+    static func exit(_ window: NSWindow, to frame: NSRect?) {
+        window.level = .normal
+        window.collectionBehavior.remove([.canJoinAllSpaces, .fullScreenAuxiliary])
+        window.collectionBehavior.insert(.fullScreenPrimary)
+        (window as? PlayerWindow)?.minimumContentSize = PlayerWindowController.minimumSize
+        let fallback = NSRect(origin: window.frame.origin, size: NSSize(width: 1280, height: 720))
+        resize(window, to: frame ?? fallback)
+    }
+
+    private static func shrink(_ window: NSWindow) -> NSRect {
+        let previous = window.frame
+        (window as? PlayerWindow)?.minimumContentSize = minimumSize
+        window.level = .floating
+        window.collectionBehavior.remove(.fullScreenPrimary)
+        window.collectionBehavior.insert([.canJoinAllSpaces, .fullScreenAuxiliary])
+        if let screen = (window.screen ?? NSScreen.main)?.visibleFrame {
+            let content = NSRect(x: screen.maxX - size.width - margin, y: screen.minY + margin,
+                                 width: size.width, height: size.height)
+            resize(window, to: window.frameRect(forContentRect: content))
+        }
+        return previous
+    }
+
+    /// An animated resize stretched the video at each step (mpv draws every size in between): the window fades
+    /// out, jumps to its new frame, and fades back in. The playback goes on meanwhile.
+    private static func resize(_ window: NSWindow, to frame: NSRect) {
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.12
+            window.animator().alphaValue = 0
+        }, completionHandler: {
+            MainActor.assumeIsolated {
+                window.setFrame(frame, display: true)
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.18
+                    window.animator().alphaValue = 1
+                }
+            }
+        })
     }
 }

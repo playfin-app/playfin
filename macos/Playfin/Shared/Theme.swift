@@ -18,6 +18,7 @@ enum Theme {
         static let textSecondary = Color.white.opacity(0.7)
         static let textTertiary = Color.white.opacity(0.5)
         static let watched = Color.green
+        static let favorite = Color.pink
         static let error = Color.red
         static let warning = Color(red: 1.0, green: 0.62, blue: 0.2)
         static let reachable = Color.green

@@ -42,6 +42,8 @@ protocol PlayerEngine: AnyObject {
     func setPanScan(_ value: Double)
     func jumpToChapter(_ index: Int)
     func setSubtitlePosition(_ percent: Double)
+    /// Any other mpv property (subtitle style, delay…), applied at once.
+    func setProperty(_ name: String, to value: String)
     /// Window that shows the player (the player keys must only act in this one).
     var hostWindow: NSWindow? { get }
 }
@@ -75,6 +77,12 @@ final class PlayerController {
     var isZoomed: Bool = false
 
     var showInfoSheet: Bool = false
+    /// Subtitle settings panel (gear of the subtitles window).
+    var showSubtitleSettings: Bool = false
+    /// Picture in picture (see `MiniPlayer`): small floating window with compact controls.
+    var isMiniPlayer: Bool = false
+    /// Frame of the window before the picture in picture, given back on exit.
+    @ObservationIgnored var frameBeforeMiniPlayer: NSRect?
     var showCenterSplash: Bool = false
     var centerSplashIcon: String = "play.fill"
 
@@ -361,6 +369,25 @@ final class PlayerController {
         engine?.setSubtitlePosition(percent)
     }
 
+    /// Subtitle delay in seconds (positive: later), for a file whose subtitles are out of sync. This video only.
+    private(set) var subtitleDelay: Double = 0
+
+    func adjustSubtitleDelay(by seconds: Double) {
+        setSubtitleDelay(subtitleDelay + seconds)
+    }
+
+    func setSubtitleDelay(_ seconds: Double) {
+        subtitleDelay = SubtitleStyle.clampedDelay(seconds)
+        engine?.setProperty("sub-delay", to: String(format: "%.2f", subtitleDelay))
+    }
+
+    /// Size, colour and background chosen in the player: applied at once, the same way as at the start.
+    func applySubtitleStyle(_ settings: AppSettings) {
+        for (name, value) in SubtitleStyle.liveOptions(settings: settings) {
+            engine?.setProperty(name, to: value)
+        }
+    }
+
     private var splashTask: Task<Void, Never>?
     /// Changes on every action: the centre icon is a new view (clean fade, no blending with the old one).
     private(set) var splashId = 0
@@ -382,6 +409,8 @@ final class PlayerController {
         audioCodec = ""
         videoResolution = ""
         showInfoSheet = false
+        // mpv keeps the delay from one file to the next: the next episode starts in sync.
+        if subtitleDelay != 0 { setSubtitleDelay(0) }
     }
 
     /// Centre icon (play, pause, jump): animated appearance; a second quick press starts again from zero

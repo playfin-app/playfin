@@ -31,6 +31,10 @@ struct HomeView: View {
                         if !model.nextUp.isEmpty {
                             continueRow("Up next", items: model.nextUp)
                         }
+                        if !model.favorites.isEmpty {
+                            // Like the other rows: at most ~20 cards (this stack is not lazy). All of them are under Favourites.
+                            posterRow("Favourites", items: Array(model.favorites.prefix(20)))
+                        }
                         if model.latestByLibrary.isEmpty {
                             if !model.latest.isEmpty { posterRow("Recently added", items: model.latest) }
                         } else {

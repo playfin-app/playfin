@@ -62,7 +62,7 @@ struct PlaybackSettingsTab: View {
             }
             Section("Subtitle style") {
                 Picker("Size", selection: $settings.values.subtitleSize) {
-                    Text("Small").tag("small"); Text("Medium").tag("medium"); Text("Large").tag("large")
+                    Text("Extra small").tag("xsmall"); Text("Small").tag("small"); Text("Medium").tag("medium"); Text("Large").tag("large")
                 }
                 Picker("Colour", selection: $settings.values.subtitleColor) {
                     Text("White").tag("white"); Text("Yellow").tag("yellow"); Text("Green").tag("green")

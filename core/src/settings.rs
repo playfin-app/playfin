@@ -28,7 +28,7 @@ pub struct AppSettings {
     /// Player volume (0 to 100), kept from one playback to the next.
     pub player_volume: u32,
     pub hardware_decoding: bool,
-    /// "small", "medium" or "large".
+    /// "xsmall", "small", "medium" or "large".
     pub subtitle_size: String,
     /// "white", "yellow" or "green".
     pub subtitle_color: String,
@@ -140,7 +140,11 @@ impl AppSettings {
         self.download_folder = self.download_folder.trim().to_string();
         self.audio_language = language_code(&self.audio_language);
         self.subtitle_language = language_code(&self.subtitle_language);
-        self.subtitle_size = one_of(&self.subtitle_size, &["small", "medium", "large"], "medium");
+        self.subtitle_size = one_of(
+            &self.subtitle_size,
+            &["xsmall", "small", "medium", "large"],
+            "medium",
+        );
         self.subtitle_color = one_of(&self.subtitle_color, &["white", "yellow", "green"], "white");
         self.subtitle_background = one_of(
             &self.subtitle_background,
@@ -330,6 +334,7 @@ pub fn mpv_options(settings: AppSettings, system_languages: Vec<String>) -> Vec<
     add(
         "sub-font-size",
         match s.subtitle_size.as_str() {
+            "xsmall" => "32",
             "small" => "42",
             "large" => "72",
             _ => "55",
@@ -555,6 +560,10 @@ mod tests {
         );
         assert_eq!(get(&o, "slang"), Some("fr,ja"));
         assert_eq!(get(&o, "sub-font-size"), Some("72"));
+        let mut tiny = AppSettings::default();
+        tiny.subtitle_size = "xsmall".into();
+        let t = mpv_options(tiny.sanitized(), vec![]);
+        assert_eq!(get(&t, "sub-font-size"), Some("32"));
         assert_eq!(get(&o, "sub-border-style"), Some("background-box"));
         assert_eq!(get(&o, "cache-on-disk"), Some("yes"));
 

@@ -348,6 +348,7 @@ final class DetailTrackChoiceTests: XCTestCase {
         func setPanScan(_ value: Double) {}
         func jumpToChapter(_ index: Int) {}
         func setSubtitlePosition(_ percent: Double) {}
+        func setProperty(_ name: String, to value: String) { calls.append("\(name)=\(value)") }
         var hostWindow: NSWindow? { nil }
     }
 
@@ -456,6 +457,52 @@ final class PlayerWindowTests: AppTestCase {
         controller.close()
         XCTAssertNil(controller.window)
         XCTAssertFalse(window.isVisible)
+        host.close()
+    }
+
+    func testTheMinimumSizeSurvivesSwiftUILayout() throws {
+        let model = AppModel()
+        let controller = PlayerWindowController()
+        model.playback = Playback(movie: makeItem(id: "m", type: "Movie"), url: "/nonexistent.mkv",
+                                  httpHeader: "", startSeconds: 0, subtitles: [])
+        controller.show(model: model)
+        let window = try XCTUnwrap(controller.window)
+        // The hosting resets `contentMinSize` to zero after its first layout: the delegate keeps the minimum.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        let proposed = controller.windowWillResize(window, to: NSSize(width: 300, height: 200))
+        let minimum = window.frameRect(forContentRect: NSRect(origin: .zero, size: PlayerWindowController.minimumSize)).size
+        XCTAssertEqual(proposed, minimum, "the bottom bar never overlaps")
+        XCTAssertEqual(controller.windowWillResize(window, to: NSSize(width: 1400, height: 900)), NSSize(width: 1400, height: 900))
+        model.playback = nil
+        controller.close()
+    }
+
+    func testPictureInPictureFloatsSmallAndGivesTheFrameBack() throws {
+        try skipOnCI("the runner's screen is too small for the window frames")
+        let model = AppModel()
+        let host = hostWindow()
+        let controller = PlayerWindowController()
+        controller.hostWindow = host
+        controller.show(model: model)
+        let window = try XCTUnwrap(controller.window as? PlayerWindow)
+
+        var saved: NSRect?
+        MiniPlayer.enter(window) { saved = $0 }
+        XCTAssertEqual(saved, host.frame)
+        XCTAssertEqual(window.level, .floating, "above the other windows")
+        XCTAssertTrue(window.collectionBehavior.contains(.canJoinAllSpaces), "on every desktop")
+        XCTAssertEqual(window.minimumContentSize, MiniPlayer.minimumSize)
+        // Fade out, jump, fade in.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        XCTAssertLessThan(window.frame.width, 600)
+        XCTAssertEqual(window.alphaValue, 1)
+
+        MiniPlayer.exit(window, to: saved)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        XCTAssertEqual(window.level, .normal)
+        XCTAssertEqual(window.frame, host.frame)
+        XCTAssertEqual(window.minimumContentSize, PlayerWindowController.minimumSize)
+        controller.close()
         host.close()
     }
 

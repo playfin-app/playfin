@@ -24,6 +24,7 @@ final class AppModel {
         case movies
         case library(String)
         case search
+        case favorites
         case downloads
     }
 
@@ -73,6 +74,8 @@ final class AppModel {
     var nextUp: [Movie] = []
     /// Recently added movies (home).
     var latest: [Movie] = []
+    /// The user's favourites (home row).
+    var favorites: [Movie] = []
     /// "Recently added in …": one row per library.
     struct LibraryLatest { let library: UserView; let items: [Movie] }
     var latestByLibrary: [LibraryLatest] = []

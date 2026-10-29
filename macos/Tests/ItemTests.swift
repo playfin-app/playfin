@@ -33,6 +33,39 @@ final class ItemTests: AppTestCase {
     }
 
     @MainActor
+    func testToggleFavoriteUsesUserFavoriteItemsAndFillsTheHomeRow() async throws {
+        let (model, movie, server, tempDir, requests) = try await makeWatchedFixture(status: 200)
+        defer { server.stop(); try? FileManager.default.removeItem(at: tempDir) }
+
+        await model.toggleFavorite(movie)
+
+        XCTAssertTrue(model.movie(id: "m-1")?.isFavorite ?? false)
+        XCTAssertEqual(model.favorites.map(\.id), ["m-1"])
+        let lines = requests.withLock { $0 }
+        XCTAssertTrue(lines[0].hasPrefix("POST /UserFavoriteItems/m-1?userId=user-w"), lines[0])
+
+        // A page still showing the old state: no second copy in the row.
+        await model.toggleFavorite(movie)
+        await model.toggleFavorite(movie)
+        XCTAssertEqual(model.favorites.map(\.id), ["m-1"])
+
+        // Watched afterwards: the heart stays.
+        await model.setWatched(try XCTUnwrap(model.movie(id: "m-1")), watched: true)
+        XCTAssertTrue(model.movie(id: "m-1")?.isFavorite ?? false)
+    }
+
+    @MainActor
+    func testToggleFavoriteRollsBackWhenServerFails() async throws {
+        let (model, movie, server, tempDir, _) = try await makeWatchedFixture(status: 500)
+        defer { server.stop(); try? FileManager.default.removeItem(at: tempDir) }
+
+        await model.toggleFavorite(movie)
+
+        XCTAssertFalse(model.movie(id: "m-1")?.isFavorite ?? true)
+        XCTAssertTrue(model.favorites.isEmpty)
+    }
+
+    @MainActor
     func testToggleWatchedKeepsImageTagsAndBackdropHash() async throws {
         let (model, movie, server, tempDir, _) = try await makeWatchedFixture(status: 200)
         defer { server.stop(); try? FileManager.default.removeItem(at: tempDir) }

@@ -20,6 +20,10 @@ pub struct UserData {
     #[serde(default)]
     pub played: bool,
     pub played_percentage: Option<f64>,
+    /// In the user's favourites (heart).
+    #[serde(default)]
+    #[uniffi(default = false)]
+    pub is_favorite: bool,
 }
 
 /// A person linked to a movie (actor, director...).

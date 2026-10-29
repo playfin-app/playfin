@@ -35,6 +35,11 @@ extension Movie {
         userData?.played == true
     }
 
+    /// In the user's favourites (heart).
+    var isFavorite: Bool {
+        userData?.isFavorite == true
+    }
+
     /// "Mark as unwatched" is offered: watched, or started (even a few minutes), or a series partly watched.
     var canMarkUnwatched: Bool {
         isWatched || (userData?.playbackPositionTicks ?? 0) > 0 || (userData?.playedPercentage ?? 0) > 0

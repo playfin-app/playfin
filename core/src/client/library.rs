@@ -519,11 +519,40 @@ impl JellyfinClient {
         Ok(home)
     }
 
+    /// The user's favourite movies, series and episodes, most recently added first (/Items?filters=IsFavorite).
+    pub async fn favorites(&self) -> Result<Vec<Movie>, JellyfinError> {
+        let user_id = self.user_id()?;
+        let query = [
+            ("userId", user_id.as_str()),
+            ("includeItemTypes", "Movie,Series,Episode"),
+            ("recursive", "true"),
+            ("filters", "IsFavorite"),
+            ("sortBy", "DateCreated"),
+            ("sortOrder", "Descending"),
+            ("limit", "300"),
+            (
+                "fields",
+                "Overview,Genres,DateCreated,SortName,CriticRating,PremiereDate,SeriesName,SeriesId,SeasonId,SeasonName,IndexNumber,ParentIndexNumber,Width,Height,PrimaryImageAspectRatio,ImageBlurHashes,UserData",
+            ),
+        ];
+        let items = self
+            .get_json::<ItemsResponse<Movie>>("/Items", &query)
+            .await?
+            .items;
+        self.cache_write("favorites", &items);
+        Ok(items)
+    }
+
     // ── Cache: lets the app show right away, before the server answers ──
 
     /// Latest known home (empty if there is none). Disk read, no network.
     pub async fn cached_home(&self) -> Home {
         self.cache_read("home").unwrap_or_default()
+    }
+
+    /// Latest known favourites (empty if there are none). Disk read, no network.
+    pub async fn cached_favorites(&self) -> Vec<Movie> {
+        self.cache_read("favorites").unwrap_or_default()
     }
 
     /// Latest known list of movies (empty if there is none). Disk read, no network.

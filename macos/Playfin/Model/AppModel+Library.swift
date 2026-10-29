@@ -26,6 +26,21 @@ extension AppModel {
             // offline mode: keep the cached libraries
         }
         await loadLatestByLibrary(client)
+        await loadFavorites(client)
+    }
+
+    /// "Favourites" row: the copy first, then the server.
+    func loadFavorites(_ client: JellyfinClient) async {
+        if favorites.isEmpty {
+            let cached = await client.cachedFavorites()
+            if self.client === client, !cached.isEmpty {
+                remember(cached)
+                favorites = cached
+            }
+        }
+        guard let fresh = try? await client.favorites(), self.client === client else { return }
+        remember(fresh)
+        favorites = fresh
     }
 
     /// One "Recently added" row per library: the copy first, then the server (in parallel).

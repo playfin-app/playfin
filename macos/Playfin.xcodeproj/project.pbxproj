@@ -18,6 +18,7 @@
 		1890BD10AEB3643D4262C5B5 /* PlayfinCore.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 36C192210EEE355DC4600EB9 /* PlayfinCore.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		1B9F23BF8E0DF97AFC91B25A /* AsyncArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88143C22CF105E73C3031A68 /* AsyncArtwork.swift */; };
 		1D0E2E2FAADA12AB935AE49E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF53308AD40E062B35F451FD /* Theme.swift */; };
+		1F950CBF221B36B6D79F4B16 /* FavoritesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2C5DCE64B668B3E8355AEB /* FavoritesView.swift */; };
 		1FEF645670F7FA7E7A05C2AD /* PlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BFCC8E5D577D2F030A0F5C7 /* PlayerController.swift */; };
 		206858D62D938F2B45913F87 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E3AB1569D507617D10DBA26 /* ImageCache.swift */; };
 		207E010CA0576B564DFCE30D /* ImageCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5505171F3BDEEF264DB2B3 /* ImageCacheTests.swift */; };
@@ -62,6 +63,7 @@
 		A3D14757A0658DBD80230572 /* DownloadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EB5C2C27B50BC68D86B17A0 /* DownloadsView.swift */; };
 		A6C95F6C2E43070B8CBC4DE9 /* AppModel+Connectivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D97635B8B3681ECA924C2F6 /* AppModel+Connectivity.swift */; };
 		A7AF1D89C91F48834AC6DDA3 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A37E738B4B1C9D0DB04C55 /* Components.swift */; };
+		AB94BE3D52095485E8C9C36C /* NowPlaying.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8B9EA6953104ADBBC9111A /* NowPlaying.swift */; };
 		AD97D703650BC33ED909F414 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F363F100BDEC37B6D10ACE20 /* Assets.xcassets */; };
 		AE6CF5C7B80DBB703EBE2AC0 /* PlayerLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3FD3A919AA647CE74CF280 /* PlayerLogicTests.swift */; };
 		AF508EB4730A058A8FE558F2 /* LibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A843F63DB25B8AF106BC562 /* LibraryTests.swift */; };
@@ -148,11 +150,13 @@
 		4D71B24705D3EC482DBECE75 /* AsyncArtworkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncArtworkTests.swift; sourceTree = "<group>"; };
 		55A94C2F7FC7D1FF1B263CF4 /* MockHttpServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockHttpServer.swift; sourceTree = "<group>"; };
 		592E952669CECE564695D274 /* PersonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonView.swift; sourceTree = "<group>"; };
+		5A8B9EA6953104ADBBC9111A /* NowPlaying.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlaying.swift; sourceTree = "<group>"; };
 		5BCEF5F98001F98C9A50D0A5 /* BlurHashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlurHashTests.swift; sourceTree = "<group>"; };
 		5C54F1D6A7CFE0E58C2EAECB /* StateViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StateViews.swift; sourceTree = "<group>"; };
 		5C7ECDF7B888E5074C73954E /* playfin_core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = playfin_core.swift; sourceTree = "<group>"; };
 		5D97635B8B3681ECA924C2F6 /* AppModel+Connectivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Connectivity.swift"; sourceTree = "<group>"; };
 		5DB926E3EE1D15C8F21C17B8 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		5E2C5DCE64B668B3E8355AEB /* FavoritesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritesView.swift; sourceTree = "<group>"; };
 		61F2AF50847E1622D8A61DB3 /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
 		6802BD36B7279ED1E6F744A1 /* BlurHashImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlurHashImage.swift; sourceTree = "<group>"; };
 		69C979CA70350D1CB0DC0BBD /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
@@ -237,6 +241,14 @@
 				E1B8BDF3933155A7889D59D0 /* SettingsModel.swift */,
 			);
 			path = Model;
+			sourceTree = "<group>";
+		};
+		25AEF8EE7E0AACB9A6D1AE8C /* Favorites */ = {
+			isa = PBXGroup;
+			children = (
+				5E2C5DCE64B668B3E8355AEB /* FavoritesView.swift */,
+			);
+			path = Favorites;
 			sourceTree = "<group>";
 		};
 		2E77E0C2051B8932FEF1B760 /* Downloads */ = {
@@ -436,6 +448,7 @@
 			children = (
 				B7E35BFC9E16849D0D630230 /* MPVPlayerView.swift */,
 				B18DCE70AB4DB6EACC98718D /* NativePlayerView.swift */,
+				5A8B9EA6953104ADBBC9111A /* NowPlaying.swift */,
 				6BFCC8E5D577D2F030A0F5C7 /* PlayerController.swift */,
 				CB2FD91A24257611194BF524 /* PlayerControls.swift */,
 				0D779E463E51F3F8972B5B29 /* PlayerLogic.swift */,
@@ -452,6 +465,7 @@
 			children = (
 				3C3227584BD8D4D6BABED5D3 /* Detail */,
 				2E77E0C2051B8932FEF1B760 /* Downloads */,
+				25AEF8EE7E0AACB9A6D1AE8C /* Favorites */,
 				3E547958FD792598C292DC59 /* Home */,
 				8C7C25B25DB111A57CC799E8 /* Library */,
 				80DCE15D7ADA2EF5B7A72852 /* Login */,
@@ -592,6 +606,7 @@
 				F93CFF9F1D075F6B9755F62F /* DownloadsModel.swift in Sources */,
 				A3D14757A0658DBD80230572 /* DownloadsView.swift in Sources */,
 				AFEC95FA935ED7837FDF0FE7 /* EscapeToGoBack.swift in Sources */,
+				1F950CBF221B36B6D79F4B16 /* FavoritesView.swift in Sources */,
 				E8453AD2A719F41397DAEA3F /* FocalPoint.swift in Sources */,
 				28B75A4B4A274170E1EC4518 /* HomeView.swift in Sources */,
 				206858D62D938F2B45913F87 /* ImageCache.swift in Sources */,
@@ -605,6 +620,7 @@
 				79464EDEB626867A0460AE29 /* MoviesGridView.swift in Sources */,
 				78F99641BFF4042573712D06 /* NativePlayerView.swift in Sources */,
 				9BB7D9F26AA80F3387545758 /* NetworkMonitor.swift in Sources */,
+				AB94BE3D52095485E8C9C36C /* NowPlaying.swift in Sources */,
 				E96897E6197B43FA97D501DE /* OfflineBanner.swift in Sources */,
 				936ABC573981BFE3FE7D0E37 /* PersonView.swift in Sources */,
 				1FEF645670F7FA7E7A05C2AD /* PlayerController.swift in Sources */,

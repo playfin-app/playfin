@@ -17,6 +17,7 @@ struct PlayerControlsOverlay: View {
     let isVisible: Bool
     let onClose: () -> Void
     let onToggleFullScreen: () -> Void
+    var onToggleMiniPlayer: () -> Void = {}
     /// Nil for a movie: no episode buttons.
     var episodeNavigation: EpisodeNavigation?
     /// Intro, credits… spotted by the server: shown on the seek bar.
@@ -85,7 +86,10 @@ struct PlayerControlsOverlay: View {
 
             Spacer()
 
-            PlayerIconButton(systemImage: "arrow.up.left.and.arrow.down.right", help: "Full screen (F)", action: onToggleFullScreen)
+            HStack(spacing: 8) {
+                PlayerIconButton(systemImage: "pip.enter", help: "Picture in picture", action: onToggleMiniPlayer)
+                PlayerIconButton(systemImage: "arrow.up.left.and.arrow.down.right", help: "Full screen (F)", action: onToggleFullScreen)
+            }
         }
         .padding(.horizontal, 24)
         // Below the title bar (where the window buttons were), not in it: "Close" and full screen on one line.
@@ -113,7 +117,11 @@ struct PlayerControlsOverlay: View {
                     TrackPopover(kind: .subtitles, groups: controller.subtitleGroups,
                                  isActive: controller.selectedSubtitleId != nil,
                                  onSelect: { controller.selectSubtitle(id: $0) },
-                                 onDisable: { controller.selectSubtitle(id: nil) })
+                                 onDisable: { controller.selectSubtitle(id: nil) },
+                                 onSettings: {
+                                     openPopover = nil
+                                     controller.showSubtitleSettings = true
+                                 })
                 }
                 PlayerCircleButton(systemImage: "ellipsis", help: "Options", kind: .options, openPopover: $openPopover) {
                     OptionsPopover(controller: controller, close: { openPopover = nil })
@@ -475,7 +483,15 @@ struct TrackPopover: View {
     var isActive: Bool
     let onSelect: (Int) -> Void
     let onDisable: (() -> Void)?
-    @State private var language: LanguageGroup?
+    /// Gear at the top right: opens the subtitle settings panel (nil: no gear, e.g. for the audio).
+    var onSettings: (() -> Void)?
+    /// Language opened. Only its code: the group itself is read again from `groups` at each display, so the
+    /// tick follows a new choice at once (a copy kept here stayed on the old selection).
+    @State private var languageId: String?
+
+    private var language: LanguageGroup? {
+        languageId.flatMap { id in groups.first { $0.id == id } }
+    }
 
     var body: some View {
         ZStack {
@@ -491,15 +507,29 @@ struct TrackPopover: View {
         .padding(.horizontal, 6)
         .frame(width: 300)
         .clipped()
-        .animation(Theme.Motion.standard, value: language?.id)
+        .animation(Theme.Motion.standard, value: languageId)
     }
 
     private var languagesPage: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(kind == .audio ? "Audio" : "Subtitles")
-                .font(.headline)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 6)
+            HStack {
+                Text(kind == .audio ? "Audio" : "Subtitles")
+                    .font(.headline)
+                Spacer()
+                if let onSettings {
+                    Button(action: onSettings) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 15, weight: .medium))
+                            .frame(width: 26, height: 26)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Subtitle settings")
+                    .accessibilityLabel("Subtitle settings")
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 6)
             if let onDisable {
                 row(title: "Off", selected: !isActive, trailingChevron: false) { onDisable() }
             }
@@ -515,7 +545,7 @@ struct TrackPopover: View {
                         detail: group.choices.count > 1 ? "\(group.choices.count) tracks" : group.choices.first?.label ?? "",
                         selected: group.choices.contains(where: \.isSelected),
                         trailingChevron: true
-                    ) { language = group }
+                    ) { languageId = group.id }
                 }
             }
         }
@@ -524,7 +554,7 @@ struct TrackPopover: View {
     private func tracksPage(_ group: LanguageGroup) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Button {
-                language = nil
+                languageId = nil
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.left").font(.callout.bold())
@@ -587,6 +617,85 @@ struct TrackPopover: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color.white.opacity(0.08) : .clear))
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Subtitle settings panel, in the centre of the player like "Stream details" (gear of the subtitles window):
+/// size, colour and background (saved, the same as in Settings) and the delay (this video).
+struct SubtitleSettingsSheet: View {
+    @Bindable var controller: PlayerController
+    @Bindable var settings: SettingsModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Subtitle settings")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                Spacer()
+                Button {
+                    controller.showSubtitleSettings = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                .help("Close (Esc)")
+            }
+            Divider()
+            section("Size") {
+                Picker("Size", selection: $settings.values.subtitleSize) {
+                    Text("Extra small").tag("xsmall"); Text("Small").tag("small"); Text("Medium").tag("medium"); Text("Large").tag("large")
+                }
+            }
+            section("Colour") {
+                Picker("Colour", selection: $settings.values.subtitleColor) {
+                    Text("White").tag("white"); Text("Yellow").tag("yellow"); Text("Green").tag("green")
+                }
+            }
+            section("Background") {
+                Picker("Background", selection: $settings.values.subtitleBackground) {
+                    Text("None").tag("none"); Text("Translucent").tag("translucent"); Text("Black").tag("black")
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Delay").font(.subheadline.weight(.semibold))
+                HStack(spacing: 10) {
+                    Button { controller.adjustSubtitleDelay(by: -0.1) } label: { Image(systemName: "minus") }
+                        .help("Subtitles earlier (0.1 s)")
+                    Text(SubtitleStyle.delayLabel(controller.subtitleDelay))
+                        .monospacedDigit()
+                        .frame(minWidth: 60)
+                    Button { controller.adjustSubtitleDelay(by: 0.1) } label: { Image(systemName: "plus") }
+                        .help("Subtitles later (0.1 s)")
+                    Spacer()
+                    Button("Reset") { controller.setSubtitleDelay(0) }
+                        .disabled(controller.subtitleDelay == 0)
+                }
+                Text("For this video only.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(22)
+        .frame(width: 420)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(.regularMaterial)
+                .shadow(radius: 30)
+        )
+        .environment(\.colorScheme, .dark)
+        .onChange(of: settings.values.subtitleSize) { _, _ in controller.applySubtitleStyle(settings.values) }
+        .onChange(of: settings.values.subtitleColor) { _, _ in controller.applySubtitleStyle(settings.values) }
+        .onChange(of: settings.values.subtitleBackground) { _, _ in controller.applySubtitleStyle(settings.values) }
+    }
+
+    private func section<Content: View>(_ title: String, @ViewBuilder picker: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.subheadline.weight(.semibold))
+            picker()
+                .labelsHidden()
+                .pickerStyle(.segmented)
+        }
     }
 }
 
@@ -670,30 +779,83 @@ enum TrackMenu {
     enum Kind { case audio, subtitles }
 }
 
+// MARK: - Picture in picture
+
+/// Controls of the small floating window: close and back to the big player at the top, play / pause in the
+/// centre, the seek bar at the bottom.
+struct MiniPlayerControls: View {
+    @Bindable var controller: PlayerController
+    let isVisible: Bool
+    let onClose: () -> Void
+    let onExit: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.35).allowsHitTesting(false)
+            VStack {
+                HStack {
+                    PlayerIconButton(systemImage: "xmark", help: "Close the player (Esc)", action: onClose)
+                    Spacer()
+                    PlayerIconButton(systemImage: "pip.exit", help: "Back to the big player", action: onExit)
+                }
+                Spacer()
+                PlayerScrubber(controller: controller)
+            }
+            .padding(10)
+
+            Button {
+                controller.togglePlayPause()
+            } label: {
+                Image(systemName: controller.isPaused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.black)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(.white))
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(.plain)
+            .help(controller.isPaused ? "Play (Space)" : "Pause (Space)")
+        }
+        .opacity(isVisible ? 1 : 0)
+        .animation(Theme.Motion.controls, value: isVisible)
+        .allowsHitTesting(isVisible)
+    }
+}
+
 // MARK: - Click on the video
 
 /// Transparent area that receives the clicks on the video. Counts the clicks itself (see `VideoClick`): two
 /// SwiftUI tap gestures would fire the single click on each click of a double click (3 toggles: paused), and
 /// the macOS count follows the system setting, too slow here.
 struct VideoClickArea: NSViewRepresentable {
+    /// Picture in picture: the video moves the window (no title bar to grab); a click without moving still pauses.
+    var dragsWindow = false
     let onClick: (VideoClick) -> Void
 
     func makeNSView(context: Context) -> ClickView {
         let view = ClickView()
         view.onClick = onClick
+        view.dragsWindow = dragsWindow
         return view
     }
 
     func updateNSView(_ view: ClickView, context: Context) {
         view.onClick = onClick
+        view.dragsWindow = dragsWindow
     }
 
     final class ClickView: NSView {
         var onClick: ((VideoClick) -> Void)?
+        var dragsWindow = false
         private var clickCount = 0
         private var lastClick: TimeInterval = -.infinity
 
         override func mouseDown(with event: NSEvent) {
+            if dragsWindow, let window {
+                let origin = window.frame.origin
+                window.performDrag(with: event) // returns when the button is released
+                if window.frame.origin != origin { return }
+            }
             clickCount = VideoClick.clickCount(after: clickCount, interval: event.timestamp - lastClick)
             lastClick = event.timestamp
             let action = VideoClick.action(forClickCount: clickCount)

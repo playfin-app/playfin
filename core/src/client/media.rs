@@ -209,4 +209,18 @@ impl JellyfinClient {
         let path = format!("/UserPlayedItems/{item_id}?userId={user_id}");
         self.delete(&path).await
     }
+
+    /// Adds an item to the user's favourites.
+    pub async fn mark_as_favorite(&self, item_id: &str) -> Result<(), JellyfinError> {
+        let user_id = self.user_id()?;
+        let path = format!("/UserFavoriteItems/{item_id}?userId={user_id}");
+        self.post(&path, serde_json::json!({})).await
+    }
+
+    /// Removes an item from the user's favourites.
+    pub async fn unmark_as_favorite(&self, item_id: &str) -> Result<(), JellyfinError> {
+        let user_id = self.user_id()?;
+        let path = format!("/UserFavoriteItems/{item_id}?userId={user_id}");
+        self.delete(&path).await
+    }
 }

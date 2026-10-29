@@ -711,3 +711,14 @@ fn test_library_page_deserialization() {
     assert_eq!(page.start_index, 0);
     assert_eq!(page.items.len(), 1);
 }
+
+#[test]
+fn favorite_flag_parses_and_defaults_to_false() {
+    let fav: Movie = serde_json::from_str(
+        r#"{"Id":"f1","Name":"Fav","UserData":{"Played":false,"IsFavorite":true}}"#,
+    )
+    .unwrap();
+    assert!(fav.user_data.unwrap().is_favorite);
+    // Old cache, written before the favourites: no required field.
+    assert!(!movie().user_data.unwrap().is_favorite);
+}

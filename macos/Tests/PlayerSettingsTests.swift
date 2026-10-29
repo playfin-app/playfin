@@ -92,6 +92,7 @@ final class PlayerSettingsTests: XCTestCase {
             func setPanScan(_ value: Double) {}
             func jumpToChapter(_ index: Int) {}
             func setSubtitlePosition(_ percent: Double) { calls.append("subpos \(percent)") }
+            func setProperty(_ name: String, to value: String) { calls.append("\(name)=\(value)") }
             var hostWindow: NSWindow? { nil }
         }
         let engine = FakeEngine()
@@ -100,5 +101,36 @@ final class PlayerSettingsTests: XCTestCase {
         controller.togglePlayPause()
         controller.seek(relative: -10)
         XCTAssertEqual(engine.calls, ["pause", "seek -10.0"])
+    }
+}
+
+@MainActor
+final class SubtitleStyleTests: XCTestCase {
+    func testTheStyleIsAppliedLiveAndNoneRemovesTheBox() {
+        var settings = defaultSettings()
+        settings.subtitleSize = "large"
+        settings.subtitleBackground = "black"
+        let boxed = Dictionary(SubtitleStyle.liveOptions(settings: settings), uniquingKeysWith: { _, last in last })
+        XCTAssertEqual(boxed["sub-font-size"], "72")
+        XCTAssertEqual(boxed["sub-border-style"], "background-box")
+
+        settings.subtitleBackground = "none"
+        let plain = Dictionary(SubtitleStyle.liveOptions(settings: settings), uniquingKeysWith: { _, last in last })
+        XCTAssertEqual(plain["sub-border-style"], "outline-and-shadow", "the old box goes away")
+        XCTAssertNil(plain["slang"], "only the style, not the track choice")
+    }
+
+    func testTheDelayMovesByTenthsAndResetsForTheNextItem() {
+        XCTAssertEqual(SubtitleStyle.clampedDelay(0.30000001), 0.3)
+        XCTAssertEqual(SubtitleStyle.clampedDelay(42), 10)
+        XCTAssertEqual(SubtitleStyle.delayLabel(-1.5), "-1.5 s")
+        XCTAssertEqual(SubtitleStyle.delayLabel(0), "0 s")
+
+        let controller = PlayerController()
+        controller.adjustSubtitleDelay(by: 0.1)
+        controller.adjustSubtitleDelay(by: 0.1)
+        XCTAssertEqual(controller.subtitleDelay, 0.2)
+        controller.resetForNewItem()
+        XCTAssertEqual(controller.subtitleDelay, 0)
     }
 }

@@ -384,6 +384,7 @@ extension AppModel {
         resume = []
         nextUp = []
         latest = []
+        favorites = []
         known = [:]
         playback = nil
         pendingSubtitles = []

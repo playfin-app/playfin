@@ -17,6 +17,7 @@ struct LibraryView: View {
     @State private var libraryPath = NavigationPath()
     @State private var searchPath = NavigationPath()
     @State private var downloadsPath = NavigationPath()
+    @State private var favoritesPath = NavigationPath()
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -69,6 +70,15 @@ struct LibraryView: View {
                                     destinationView(for: route)
                                 }
                         }
+                    case .favorites:
+                        NavigationStack(path: $favoritesPath) {
+                            FavoritesView()
+                                .environment(\.isPageVisible, favoritesPath.isEmpty)
+                                .navigationTitle("Favourites")
+                                .navigationDestination(for: Route.self) { route in
+                                    destinationView(for: route)
+                                }
+                        }
                     case .downloads:
                         NavigationStack(path: $downloadsPath) {
                             DownloadsView()
@@ -112,6 +122,7 @@ struct LibraryView: View {
         case .movies: return pop(&moviesPath)
         case .library: return pop(&libraryPath)
         case .search: return pop(&searchPath)
+        case .favorites: return pop(&favoritesPath)
         case .downloads: return pop(&downloadsPath)
         }
     }

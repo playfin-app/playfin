@@ -64,6 +64,12 @@ struct PlayfinApp: App {
                 }
                 .keyboardShortcut("3", modifiers: .command)
                 .disabled(model.playback != nil)
+
+                Button("Favourites") {
+                    model.selectedSection = .favorites
+                }
+                .keyboardShortcut("4", modifiers: .command)
+                .disabled(model.playback != nil)
             }
         }
 

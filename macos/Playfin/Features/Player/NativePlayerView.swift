@@ -40,6 +40,7 @@ struct NativePlayerView: View {
     @State private var popoverClosedAt: Date?
     @State private var menuClickGuard = MenuClickGuard()
     @State private var volumeSaveTask: Task<Void, Never>?
+    @State private var nowPlaying = NowPlayingCenter()
 
     var body: some View {
         ZStack {
@@ -63,7 +64,7 @@ struct NativePlayerView: View {
 
             // 2. Click area on the video: pause reacts on the first click (without waiting for a possible double click);
             // a double click silently cancels that pause and goes full screen.
-            VideoClickArea { click in
+            VideoClickArea(dragsWindow: controller.isMiniPlayer) { click in
                 // A click beside an open window only closes it: no pause.
                 switch menuClickGuard.filter(click, menuOpen: isPopoverOpen, menuClosedAt: popoverClosedAt) {
                 case .togglePause:
@@ -94,9 +95,12 @@ struct NativePlayerView: View {
             // 3 bis. "Skip intro / credits" when the server has spotted a segment
             // 3 ter. "Next episode" card during the end credits (or the last 30 seconds)
             // Both read the position in their own view: this one is not redrawn 4 times per second.
+            // Not in the small window: no room.
+            if !controller.isMiniPlayer {
             SegmentSkipOverlay(controller: controller, segments: segments,
                                isControlsVisible: isControlsVisible, barHeight: barHeight)
-            if let next = upNext {
+            }
+            if let next = upNext, !controller.isMiniPlayer {
                 UpNextOverlay(
                     controller: controller, episode: next, segments: segments,
                     isDismissed: upNextDismissed, isControlsVisible: isControlsVisible, barHeight: barHeight,
@@ -105,13 +109,18 @@ struct NativePlayerView: View {
                 )
             }
 
-            // 4. Native control interface over the video
+            // 4. Native control interface over the video (compact in picture in picture)
+            if controller.isMiniPlayer {
+                MiniPlayerControls(controller: controller, isVisible: isControlsVisible,
+                                   onClose: onClose, onExit: toggleMiniPlayer)
+            } else {
             PlayerControlsOverlay(
                 movie: playback.movie,
                 controller: controller,
                 isVisible: isControlsVisible,
                 onClose: onClose,
                 onToggleFullScreen: toggleFullScreen,
+                onToggleMiniPlayer: toggleMiniPlayer,
                 episodeNavigation: playback.movie.itemType == "Episode"
                     ? EpisodeNavigation(
                         hasPrevious: previousEpisode != nil, hasNext: nextEpisode != nil,
@@ -122,10 +131,16 @@ struct NativePlayerView: View {
                 barHeight: $barHeight,
                 isPopoverOpen: $isPopoverOpen
             )
+            }
+
+            NowPlayingSync(controller: controller, center: nowPlaying)
 
             // 5. Modal window of the playback information
             if controller.showInfoSheet {
                 PlayerInfoSheet(movie: playback.movie, controller: controller)
+            }
+            if controller.showSubtitleSettings {
+                SubtitleSettingsSheet(controller: controller, settings: model.settings)
             }
         }
         .background(Color.black)
@@ -135,6 +150,7 @@ struct NativePlayerView: View {
                 .onChange(of: geo.size.height) { _, height in playerHeight = height }
         })
         .onChange(of: isControlsVisible) { _, _ in updateSubtitlePosition() }
+        .onChange(of: controller.isMiniPlayer) { _, _ in updateSubtitlePosition() }
         .onChange(of: isPopoverOpen) { _, open in if !open { popoverClosedAt = Date() } }
         // The volume changes continuously during a drag: it is saved once the gesture is over (a file write
         // at every position made the slider jerky).
@@ -152,6 +168,7 @@ struct NativePlayerView: View {
             controller.trackMemorySeriesId = playback.movie.itemType == "Episode" ? playback.movie.seriesId : nil
             controller.initialTrackChoice = playback.initialTracks
             upNextDismissed = false
+            nowPlaying.setItem(playback.movie, artworkURL: model.imageURL(playback.movie, .primary, height: 600))
             revealControls()
         }
         // The episodes around arrive a little after the start (server request).
@@ -181,10 +198,13 @@ struct NativePlayerView: View {
             controller.initialTrackChoice = playback.initialTracks
             revealControls()
             setupKeyMonitor()
+            nowPlaying.start(controller: controller)
+            nowPlaying.setItem(playback.movie, artworkURL: model.imageURL(playback.movie, .primary, height: 600))
         }
         .onDisappear {
             NSCursor.unhide()
             removeKeyMonitor()
+            nowPlaying.stop()
         }
     }
 
@@ -203,24 +223,29 @@ struct NativePlayerView: View {
                         Image(systemName: "headphones").font(.system(size: 80)).foregroundStyle(.white.opacity(0.4))
                     )
                 }
-                .frame(width: 360, height: 360)
+                .frame(width: coverSide, height: coverSide)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .shadow(color: .white.opacity(0.08), radius: 24)
 
-                Text(playback.movie.name)
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 480)
+                if !controller.isMiniPlayer {
+                    Text(playback.movie.name)
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 480)
+                }
             }
         }
         .allowsHitTesting(false)
     }
 
+    private var coverSide: CGFloat { controller.isMiniPlayer ? 140 : 360 }
+
     private func updateSubtitlePosition() {
+        // The compact controls leave the bottom of the picture free.
         controller.setSubtitlePosition(SubtitleLayout.position(
-            barHeight: barHeight, playerHeight: playerHeight, controlsVisible: isControlsVisible
+            barHeight: barHeight, playerHeight: playerHeight, controlsVisible: isControlsVisible && !controller.isMiniPlayer
         ))
     }
 
@@ -239,7 +264,7 @@ struct NativePlayerView: View {
             guard !Task.isCancelled else { return }
             // Do not hide the controls if the video is paused, the mouse is on the controls or a popup is open
             if ControlsVisibility.canHide(
-                isPaused: controller.isPaused, infoSheetOpen: controller.showInfoSheet,
+                isPaused: controller.isPaused, infoSheetOpen: controller.showInfoSheet || controller.showSubtitleSettings,
                 overlayHovered: isOverlayHovered, scrubbing: controller.isScrubbing, menuOpen: isPopoverOpen
             ) {
                 withAnimation(Theme.Motion.controls) {
@@ -252,7 +277,28 @@ struct NativePlayerView: View {
 
     /// The player window (its own, see `PlayerWindowController`): its full screen goes away with it.
     private func toggleFullScreen() {
+        // From the small window, F or a double click give the big player back.
+        if controller.isMiniPlayer { toggleMiniPlayer(); return }
         (controller.engine?.hostWindow ?? NSApplication.shared.keyWindow)?.toggleFullScreen(nil)
+    }
+
+    /// Picture in picture on or off (see `MiniPlayer`).
+    private func toggleMiniPlayer() {
+        guard let window = controller.engine?.hostWindow else { return }
+        if controller.isMiniPlayer {
+            MiniPlayer.exit(window, to: controller.frameBeforeMiniPlayer)
+            controller.frameBeforeMiniPlayer = nil
+            controller.isMiniPlayer = false
+        } else {
+            // The panels are as wide as the small window: closed.
+            controller.showInfoSheet = false
+            controller.showSubtitleSettings = false
+            MiniPlayer.enter(window) { previous in
+                controller.frameBeforeMiniPlayer = previous
+                controller.isMiniPlayer = true
+            }
+        }
+        revealControls()
     }
 
     private func setupKeyMonitor() {
@@ -265,7 +311,13 @@ struct NativePlayerView: View {
                   let action = PlayerKeyAction.from(keyCode: event.keyCode) else { return event }
             switch action {
             case .close:
-                if controller.showInfoSheet { controller.showInfoSheet = false } else { onClose() }
+                if controller.showInfoSheet {
+                    controller.showInfoSheet = false
+                } else if controller.showSubtitleSettings {
+                    controller.showSubtitleSettings = false
+                } else {
+                    onClose()
+                }
             case .togglePause: controller.togglePlayPause()
             case .toggleFullScreen: toggleFullScreen()
             case .toggleMute: controller.toggleMute()

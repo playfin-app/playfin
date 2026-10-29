@@ -275,7 +275,11 @@ async fn home_returns_the_three_rows() {
     mount_home(&server).await;
 
     let home = client.home().await.expect("home");
-    assert_eq!(home.resume.len(), 1);
+    assert_eq!(
+        home.resume.len(),
+        1,
+        "the season returned by the server is not resumable"
+    );
     assert_eq!(home.resume[0].id, "item-resume-1");
     assert_eq!(home.next_up.len(), 2);
     assert_eq!(home.latest.len(), 3);

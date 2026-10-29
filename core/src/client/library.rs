@@ -513,7 +513,7 @@ impl JellyfinClient {
 
         // If one of the requests failed (network, unreachable server, expired auth),
         // propagate the error and DO NOT overwrite the existing valid cache!
-        let resume = resume_res?;
+        let resume = resumable_only(resume_res?);
         let next_up = next_up_res?;
         let latest = latest_res?;
 
@@ -555,7 +555,10 @@ impl JellyfinClient {
 
     /// Latest known home (empty if there is none). Disk read, no network.
     pub async fn cached_home(&self) -> Home {
-        self.cache_read("home").unwrap_or_default()
+        let mut home: Home = self.cache_read("home").unwrap_or_default();
+        // A copy written by an older version may still hold seasons.
+        home.resume = resumable_only(home.resume);
+        home
     }
 
     /// Latest known favourites (empty if there are none). Disk read, no network.
@@ -609,4 +612,17 @@ impl JellyfinClient {
             let _ = std::fs::remove_dir_all(dir);
         }
     }
+}
+
+/// "Continue watching" only keeps what can be resumed. Jellyfin also returns the seasons being watched: their card
+/// looked like an episode (series poster and name) but opened a bare list of episodes. Their episodes are already
+/// there or in "Up next".
+fn resumable_only(mut items: Vec<Movie>) -> Vec<Movie> {
+    items.retain(|item| {
+        !matches!(
+            item.item_type.as_deref(),
+            Some("Season" | "Series" | "Folder" | "BoxSet")
+        )
+    });
+    items
 }

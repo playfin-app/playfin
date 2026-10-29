@@ -166,6 +166,10 @@ impl JellyfinClient {
             width: Option<i32>,
             height: Option<i32>,
             video_range_type: Option<String>,
+            profile: Option<String>,
+            channel_layout: Option<String>,
+            dv_profile: Option<i32>,
+            bit_depth: Option<i32>,
         }
         #[derive(Deserialize)]
         #[serde(rename_all = "PascalCase")]
@@ -205,6 +209,8 @@ impl JellyfinClient {
             is_default: s.is_default,
             is_external: s.is_external,
             title: s.display_title.clone(),
+            profile: s.profile.clone().filter(|p| !p.is_empty()),
+            channel_layout: s.channel_layout.clone().filter(|l| !l.is_empty()),
         };
         Ok(MediaInfo {
             container: source.container.clone(),
@@ -212,6 +218,8 @@ impl JellyfinClient {
             width: video.and_then(|v| v.width),
             height: video.and_then(|v| v.height),
             video_range: video.and_then(|v| v.video_range_type.clone()),
+            dolby_vision_profile: video.and_then(|v| v.dv_profile),
+            video_bit_depth: video.and_then(|v| v.bit_depth),
             audio: source
                 .media_streams
                 .iter()

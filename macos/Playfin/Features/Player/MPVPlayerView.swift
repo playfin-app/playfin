@@ -69,6 +69,13 @@ final class MPVNSView: NSView {
     private var playbackSyncTimer: Timer?
     private var isDestroyed = false
     private var lastKnownPosition: Double = 0
+    /// The video stays invisible (black behind) until its first frame, then fades in.
+    private var isVideoShown = false
+    /// Settings read at the start: "auto" or "off" (see `HDROutput`), and smooth motion (needs the display rate).
+    private var hdrMode = "auto"
+    private var smoothMotion = false
+    private var isHDROutput = false
+    private var screenObserver: NSObjectProtocol?
 
     weak var controller: PlayerController?
     var onStart: ((Double) -> Void)?
@@ -99,9 +106,12 @@ final class MPVNSView: NSView {
         mpv_set_option_string(mpv, "input-default-bindings", "no")
         mpv_set_option_string(mpv, "keep-open", "yes")
         // Hardware decoding, network cache (chosen preset) and languages: see PlayerSettings.swift
-        for option in PlayerOptions.current() {
+        let settings = SettingsStore(dir: AppPaths.supportDirectory.path).load()
+        for option in PlayerOptions.current(settings: settings) {
             mpv_set_option_string(mpv, option.name, option.value)
         }
+        hdrMode = settings.hdrMode
+        smoothMotion = settings.smoothMotion
         // Fast relative jumps (arrows) on keyframes; precise frame-accurate absolute jump (seek bar),
         // so that playback resumes exactly where the user let go.
         mpv_set_option_string(mpv, "hr-seek", "absolute")
@@ -110,7 +120,8 @@ final class MPVNSView: NSView {
         // With keep-open, mpv does not send "end of file": we observe `eof-reached` instead.
         mpv_observe_property(mpv, 0, "eof-reached", MPV_FORMAT_FLAG)
 
-        mpvLayer = MPVLayer(mpv: mpv)
+        mpvLayer = MPVLayer(mpv: mpv, floatingPoint: settings.hdrMode == "auto")
+        mpvLayer.opacity = 0
         super.init(frame: frame)
         layer = mpvLayer
         wantsLayer = true
@@ -133,6 +144,8 @@ final class MPVNSView: NSView {
     private(set) var currentURL: String?
 
     func play(_ playback: Playback) {
+        // Next item in the same player: the old picture fades away, the new one will fade in.
+        if isVideoShown { setVideoVisible(false) }
         currentURL = playback.url
         isFileLoaded = false
         lastKnownPosition = 0
@@ -181,10 +194,12 @@ final class MPVNSView: NSView {
             Unmanaged.passUnretained(ctx).release()
             wakeupContext = nil
         }
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        screenObserver = nil
         mpvLayer.destroy()
-        // Waits for a possible state read in progress on the other thread, then forbids the following ones.
-        handle.invalidate()
-        mpv_terminate_destroy(mpv)
+        // Waits for a possible state read in progress on the other thread, forbids the following ones, then stops
+        // mpv in the background.
+        handle.terminate()
     }
 
     // MARK: - Screen sleep
@@ -271,6 +286,10 @@ final class MPVNSView: NSView {
     func selectSubtitle(id: Int?) {
         command(["set", "sid", id.map(String.init) ?? "no"])
         updatePlaybackState()
+    }
+
+    func setRenderingSuspended(_ suspended: Bool) {
+        mpvLayer.setRenderingSuspended(suspended)
     }
 
     func setProperty(_ name: String, to value: String) {
@@ -420,6 +439,50 @@ final class MPVNSView: NSView {
         if controller.chapters != snapshot.chapters { controller.chapters = snapshot.chapters }
     }
 
+    // MARK: - HDR and display
+
+    /// Real HDR or SDR output, and the display rate for smooth motion. Again when the window moves to another
+    /// display (an HDR video goes to SDR on a plain monitor, and back).
+    private func updateDisplayOutput() {
+        guard !isDestroyed else { return }
+        let screen = window?.screen ?? NSScreen.main
+        let headroom = screen?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1
+        let transfer = stringProperty("video-params/gamma")
+        let hdr = mpvLayer.isFloatingPoint && HDROutput.isHDR(mode: hdrMode, transfer: transfer, headroom: headroom)
+        if hdr != isHDROutput || hdr {
+            for (name, value) in HDROutput.mpvOptions(hdr: hdr, headroom: headroom) {
+                command(["set", name, value])
+            }
+            isHDROutput = hdr
+        }
+        // Every video, SDR included: the layer must say how to read its pixels (see `setHDROutput`).
+        mpvLayer.setHDROutput(hdr, sdrColorSpace: screen?.colorSpace?.cgColorSpace)
+        controller?.dynamicRange = HDROutput.summary(transfer: transfer, hdr: hdr)
+        if smoothMotion, let rate = screen?.maximumFramesPerSecond, rate > 0 {
+            command(["set", "display-fps-override", String(rate)])
+        }
+    }
+
+    private func stringProperty(_ name: String) -> String {
+        guard let pointer = mpv_get_property_string(mpv, name) else { return "" }
+        defer { mpv_free(pointer) }
+        return String(cString: pointer)
+    }
+
+    // MARK: - Video appearing
+
+    /// Explicit animation: the implicit ones of a view's own layer are turned off by AppKit.
+    private func setVideoVisible(_ visible: Bool) {
+        isVideoShown = visible
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = mpvLayer.presentation()?.opacity ?? mpvLayer.opacity
+        fade.toValue = visible ? 1 : 0
+        fade.duration = visible ? Theme.Motion.videoReveal : Theme.Motion.windowFade
+        fade.timingFunction = CAMediaTimingFunction(name: visible ? .easeOut : .easeIn)
+        mpvLayer.opacity = visible ? 1 : 0
+        mpvLayer.add(fade, forKey: "videoFade")
+    }
+
     // MARK: - mpv events
 
     private func readEvents() {
@@ -429,9 +492,14 @@ final class MPVNSView: NSView {
             switch event.event_id {
             case MPV_EVENT_FILE_LOADED:
                 fileLoaded()
+            case MPV_EVENT_VIDEO_RECONFIG:
+                // Video format known (or changed): HDR or SDR output for this video on this display.
+                updateDisplayOutput()
             case MPV_EVENT_PROPERTY_CHANGE:
                 handlePropertyChange(event)
             case MPV_EVENT_PLAYBACK_RESTART:
+                // Playback really started (first frame ready, at the resume position): the picture fades in.
+                if !isVideoShown { setVideoVisible(true) }
                 updatePlaybackState()
                 reportProgressNow() // end of a jump in the video
             case MPV_EVENT_END_FILE:
@@ -549,6 +617,14 @@ final class MPVNSView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        screenObserver = window.map { window in
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeScreenNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateDisplayOutput() }
+            }
+        }
         mpvLayer.contentsScale = window?.backingScaleFactor ?? 2
         window?.makeFirstResponder(self)
     }
@@ -562,19 +638,30 @@ final class MPVLayer: CAOpenGLLayer {
     private let glContext: CGLContextObj
     private let lock = NSLock()
     private var forceDraw = true
+    /// Window being resized with an animation (picture in picture): mpv no longer draws, Core Animation scales
+    /// the last frame instead (smooth; drawing every size in between made the animation jerky).
+    private var isRenderingSuspended = false
 
-    init(mpv: OpaquePointer) {
+    /// 16-bit floating-point pixels: values brighter than white, needed by real HDR (EDR).
+    let isFloatingPoint: Bool
+
+    init(mpv: OpaquePointer, floatingPoint: Bool = false) {
         self.mpv = mpv
-
-        let attributes: [CGLPixelFormatAttribute] = [
+        // Floating point first if HDR is wanted; a GPU that refuses it gets the usual 8-bit format (no HDR then).
+        let base: [CGLPixelFormatAttribute] = [
             kCGLPFAOpenGLProfile, CGLPixelFormatAttribute(kCGLOGLPVersion_3_2_Core.rawValue),
             kCGLPFADoubleBuffer, kCGLPFAAccelerated, kCGLPFAAllowOfflineRenderers,
-            CGLPixelFormatAttribute(0),
         ]
-        var pixelFormat: CGLPixelFormatObj?
-        var count: GLint = 0
-        CGLChoosePixelFormat(attributes, &pixelFormat, &count)
-        guard let resolvedPixelFormat = pixelFormat else {
+        let floatAttributes = base + [kCGLPFAColorFloat, kCGLPFAColorSize, CGLPixelFormatAttribute(64)]
+        func choose(_ attributes: [CGLPixelFormatAttribute]) -> CGLPixelFormatObj? {
+            var format: CGLPixelFormatObj?
+            var count: GLint = 0
+            CGLChoosePixelFormat(attributes + [CGLPixelFormatAttribute(0)], &format, &count)
+            return format
+        }
+        let floatFormat = floatingPoint ? choose(floatAttributes) : nil
+        isFloatingPoint = floatFormat != nil
+        guard let resolvedPixelFormat = floatFormat ?? choose(base) else {
             fatalError("Could not choose the OpenGL pixel format")
         }
         var glContext: CGLContextObj?
@@ -593,6 +680,8 @@ final class MPVLayer: CAOpenGLLayer {
         needsDisplayOnBoundsChange = true
         isOpaque = true
         backgroundColor = NSColor.black.cgColor
+        // The last frame keeps its proportions while it is scaled during a suspended resize.
+        contentsGravity = .resizeAspect
         createRenderContext()
     }
 
@@ -601,6 +690,7 @@ final class MPVLayer: CAOpenGLLayer {
             fatalError("MPVLayer expected for the layer initialisation")
         }
         mpv = other.mpv
+        isFloatingPoint = other.isFloatingPoint
         pixelFormat = other.pixelFormat
         glContext = other.glContext
         CGLRetainPixelFormat(pixelFormat)
@@ -619,6 +709,28 @@ final class MPVLayer: CAOpenGLLayer {
 
     override var contentsScale: CGFloat {
         didSet { lock.withLock { forceDraw = true } }
+    }
+
+    /// Real HDR: Extended Dynamic Range in the BT.2100 PQ colour space (what mpv then produces).
+    /// SDR: the display's own colour space, which shows mpv's pixels as they are (as with the 8-bit layer). It must
+    /// be given with floating-point pixels: without a colour space, macOS reads them as linear light and adds a
+    /// gamma curve again, which washed SDR videos out.
+    func setHDROutput(_ on: Bool, sdrColorSpace: CGColorSpace?) {
+        let space = HDROutput.layerColorSpace(hdr: on, floatingPoint: isFloatingPoint, display: sdrColorSpace)
+        guard on != wantsExtendedDynamicRangeContent || space !== colorspace else { return }
+        wantsExtendedDynamicRangeContent = on
+        colorspace = space
+        lock.withLock { forceDraw = true }
+        scheduleRender()
+    }
+
+    func setRenderingSuspended(_ suspended: Bool) {
+        lock.withLock {
+            isRenderingSuspended = suspended
+            if !suspended { forceDraw = true }
+        }
+        // Back: a fresh frame at the new size right away.
+        if !suspended { scheduleRender() }
     }
 
     private func createRenderContext() {
@@ -703,7 +815,7 @@ final class MPVLayer: CAOpenGLLayer {
         lock.withLock {
             guard let renderContext else { return false }
             let newFrame = mpv_render_context_update(renderContext) & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0
-            return newFrame || forceDraw
+            return !isRenderingSuspended && (newFrame || forceDraw)
         }
     }
 
@@ -718,7 +830,9 @@ final class MPVLayer: CAOpenGLLayer {
             var viewport: [GLint] = [0, 0, 0, 0]
             glGetIntegerv(GLenum(GL_VIEWPORT), &viewport)
 
-            var fbo = mpv_opengl_fbo(fbo: Int32(framebuffer), w: viewport[2], h: viewport[3], internal_format: 0)
+            // Tells mpv the buffer holds 16-bit floats: no 8-bit dithering, values above white kept for HDR.
+            let format: Int32 = isFloatingPoint ? Int32(GL_RGBA16F) : 0
+            var fbo = mpv_opengl_fbo(fbo: Int32(framebuffer), w: viewport[2], h: viewport[3], internal_format: format)
             var flipY: CInt = 1
             withUnsafeMutablePointer(to: &fbo) { fboPtr in
                 withUnsafeMutablePointer(to: &flipY) { flipPtr in
@@ -756,6 +870,16 @@ final class MPVHandle: @unchecked Sendable {
         lock.lock()
         valid = false
         lock.unlock()
+    }
+
+    /// Stops mpv away from the main thread: closing the network stream and the decoders takes a moment, during
+    /// which the interface froze (delay before the library came back). Safe here: the render context is
+    /// already freed and nothing else may use the handle any more.
+    func terminate() {
+        invalidate()
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            mpv_terminate_destroy(mpv)
+        }
     }
 }
 

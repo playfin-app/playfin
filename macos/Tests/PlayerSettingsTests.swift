@@ -93,6 +93,7 @@ final class PlayerSettingsTests: XCTestCase {
             func jumpToChapter(_ index: Int) {}
             func setSubtitlePosition(_ percent: Double) { calls.append("subpos \(percent)") }
             func setProperty(_ name: String, to value: String) { calls.append("\(name)=\(value)") }
+        func setRenderingSuspended(_ suspended: Bool) {}
             var hostWindow: NSWindow? { nil }
         }
         let engine = FakeEngine()

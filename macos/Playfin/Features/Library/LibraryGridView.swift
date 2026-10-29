@@ -76,15 +76,8 @@ struct LibraryGridView: View {
                         }
                     )
 
-                    if content == nil || (model.isLoadingLibrary && model.libraryItems.isEmpty) {
-                        VStack(spacing: 16) {
-                            ProgressView()
-                                .controlSize(.regular)
-                            Text("Loading the library…")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if content == nil {
+                        LoadingStateView(message: "Loading the library…")
                     } else if let error = model.libraryLoadError, model.libraryItems.isEmpty {
                         ErrorStateView(
                             title: model.isServerUnreachable ? "Library not saved" : "Unable to load",
@@ -169,7 +162,7 @@ struct LibraryGridView: View {
                 // Vertical alphabet bar for quick jumping
                 if showsLetterSections {
                     AlphabetJumpBar(activeLetters: activeLetters) { letter in
-                        withAnimation(.easeInOut(duration: 0.25)) {
+                        withAnimation(Theme.Motion.standard) {
                             proxy.scrollTo("letter_\(letter)", anchor: .top)
                         }
                     }
@@ -189,21 +182,35 @@ struct LibraryGridView: View {
                 .help("Poster size")
             }
         }
+        // First visit: the grid fades in instead of popping up.
+        .animation(Theme.Motion.fade, value: content == nil)
+        // Back to a library: its last grid at once (before the first frame), refreshed below.
+        .onAppear {
+            if content == nil, let cached = model.gridCache[libraryId], cached.query == gridQuery {
+                content = cached.content
+            }
+        }
         .task(id: libraryId) {
             await loadInitialItems()
         }
-        .task(id: ContentKey(query: gridQuery, revision: model.libraryRevision, loadedLibraryId: model.loadedLibraryId)) {
+        .task(id: ContentKey(query: gridQuery, revision: model.libraryRevision, loadedLibraryId: model.loadedLibraryId,
+                              isLoading: model.isLoadingLibrary)) {
             // Short delay while typing: do not refilter on every letter.
             if !search.isEmpty { try? await Task.sleep(for: .milliseconds(150)) }
             guard !Task.isCancelled else { return }
-            // Never the items of another library (the old list stays in memory for a moment).
-            let items = model.loadedLibraryId == libraryId ? model.libraryItems : []
+            // Not before the model has switched to this library: the old list (or an empty one) would show
+            // "Empty library" for a split second before the real content.
+            guard model.loadedLibraryId == libraryId else { return }
+            // Reload in progress, list emptied for a moment: the grid already shown stays until the new one.
+            if model.isLoadingLibrary && model.libraryItems.isEmpty { return }
+            let items = model.libraryItems
             let query = gridQuery
             let built = await Task.detached(priority: .userInitiated) {
                 GridContentBuilder.build(items: items, query: query)
             }.value
             guard !Task.isCancelled else { return }
             content = built
+            model.gridCache[libraryId] = AppModel.CachedGrid(query: query, content: built)
         }
         .onChange(of: sortOption) { _, _ in
             Task {
@@ -217,6 +224,8 @@ struct LibraryGridView: View {
         let query: GridQuery
         let revision: Int
         let loadedLibraryId: String?
+        /// End of a load that left the list empty (an empty library): built then, not stuck on "Loading…".
+        let isLoading: Bool
     }
 
     @ViewBuilder

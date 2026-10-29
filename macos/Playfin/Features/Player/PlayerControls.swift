@@ -67,7 +67,7 @@ struct PlayerControlsOverlay: View {
                 .background(GlassCapsule())
             }
             .buttonStyle(.plain)
-            .help("Close the player (Esc)")
+            .help("Close the player")
 
             Spacer()
 
@@ -794,7 +794,7 @@ struct MiniPlayerControls: View {
             Color.black.opacity(0.35).allowsHitTesting(false)
             VStack {
                 HStack {
-                    PlayerIconButton(systemImage: "xmark", help: "Close the player (Esc)", action: onClose)
+                    PlayerIconButton(systemImage: "xmark", help: "Close the player", action: onClose)
                     Spacer()
                     PlayerIconButton(systemImage: "pip.exit", help: "Back to the big player", action: onExit)
                 }

@@ -187,6 +187,16 @@ final class Playback4KTests: XCTestCase {
         XCTAssertFalse(controller.videoCodec.isEmpty, "Video codec should be detected")
         XCTAssertEqual(controller.hwdecCurrent, "videotoolbox", "Hardware decoding should be videotoolbox")
         XCTAssertTrue(controller.videoResolution.contains("4K UHD"), "Resolution must be 4K UHD")
+        // Invisible while loading (no sudden picture during the opening), shown once playback has started.
+        let shownBy = Date().addingTimeInterval(3)
+        while Date() < shownBy && view.layer?.opacity != 1 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        XCTAssertEqual(view.layer?.opacity, 1, "the video fades in on its first frame")
+        XCTAssertEqual(controller.dynamicRange, "SDR", "the output is chosen for each video (SDR file here)")
+        let layer = try XCTUnwrap(view.layer as? MPVLayer)
+        XCTAssertFalse(layer.wantsExtendedDynamicRangeContent, "SDR video: no HDR output")
+        if layer.isFloatingPoint {
+            XCTAssertNotNil(layer.colorspace, "floating-point SDR pixels need a colour space (washed out without)")
+        }
 
         view.destroy()
         window.contentView = nil

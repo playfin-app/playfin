@@ -11,6 +11,7 @@
 		01B6EA59FB504504E2E45076 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 80224815295EB6668C85BC40 /* SystemConfiguration.framework */; };
 		0221382AB98C0AB2439B5295 /* PlayerControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2FD91A24257611194BF524 /* PlayerControls.swift */; };
 		039621FDAC24229E9E22FDFC /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 289B65088FF0A7BA9EAA2536 /* AboutView.swift */; };
+		04A3F59949868C27FB144BE9 /* LoadingStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF51BF810752CD3446569F59 /* LoadingStateView.swift */; };
 		06B3392D21E4D7758DF0A80F /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F2AF50847E1622D8A61DB3 /* ModelTests.swift */; };
 		0722E185C1AE5AE7ED40FCF3 /* Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BC8197C6D38368C0AAAF3B3 /* Diagnostics.swift */; };
 		0B42F6DD50A07CA45DB58792 /* Playback4KTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDBD141FA9341791CB548EF8 /* Playback4KTests.swift */; };
@@ -206,6 +207,7 @@
 		FC175459AF13FFCCD722F744 /* PlayerTracks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerTracks.swift; sourceTree = "<group>"; };
 		FCC78DE717062CBFB3C70E57 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		FE481F5644CE98BAFDEC76A4 /* SeriesDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeriesDetailView.swift; sourceTree = "<group>"; };
+		FF51BF810752CD3446569F59 /* LoadingStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingStateView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -307,6 +309,7 @@
 				08A37E738B4B1C9D0DB04C55 /* Components.swift */,
 				45D86C594945EE5D06EC1357 /* EscapeToGoBack.swift */,
 				8D2E3A2E548E2FAF10D93E59 /* FocalPoint.swift */,
+				FF51BF810752CD3446569F59 /* LoadingStateView.swift */,
 				008ECA86B80471B5F368DD3B /* PosterCard.swift */,
 				5C54F1D6A7CFE0E58C2EAECB /* StateViews.swift */,
 				AF53308AD40E062B35F451FD /* Theme.swift */,
@@ -613,6 +616,7 @@
 				6E8855E472B461714FF4F2B6 /* LibraryContent.swift in Sources */,
 				C5666F937C0A9AFEA8F72DF5 /* LibraryGridView.swift in Sources */,
 				C1B44986FB9C7FA6DC4ADA39 /* LibraryView.swift in Sources */,
+				04A3F59949868C27FB144BE9 /* LoadingStateView.swift in Sources */,
 				12E472DA880830DC62B5C0D0 /* LoginView.swift in Sources */,
 				015D0749D105FC65020F9F82 /* MPVPlayerView.swift in Sources */,
 				568973342B00C3CF7AE356E6 /* Movie+Extensions.swift in Sources */,

@@ -58,7 +58,27 @@ struct PlaybackSettingsTab: View {
             }
             Section("Video") {
                 Toggle("Hardware decoding (recommended)", isOn: $settings.values.hardwareDecoding)
+                Picker("HDR", selection: $settings.values.hdrMode) {
+                    Text("Automatic").tag("auto"); Text("Always convert to SDR").tag("off")
+                }
+                Text("Automatic: HDR10 and HLG videos are shown in real HDR on a display that supports it "
+                     + "(MacBook Pro, Pro Display XDR, HDR monitors), and converted to SDR elsewhere.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Smooth motion", isOn: $settings.values.smoothMotion)
+                Text("Times the frames on the display: fewer small jerks in 24 fps films on a 60 Hz screen. "
+                     + "Uses a little more energy.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Text("Applies at the next playback.").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Audio") {
+                Picker("Channels", selection: $settings.values.audioChannels) {
+                    Text("Automatic (5.1 / 7.1 when available)").tag("auto"); Text("Stereo").tag("stereo")
+                }
+                Toggle("Send Dolby and DTS to the amplifier (passthrough)", isOn: $settings.values.audioPassthrough)
+                Text("For a receiver connected by HDMI or optical cable: it decodes Dolby Digital, Dolby Digital+ "
+                     + "and DTS itself. Dolby Atmos is played as its 7.1 base: macOS cannot pass TrueHD / Atmos "
+                     + "through. Applies at the next playback.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Subtitle style") {
                 Picker("Size", selection: $settings.values.subtitleSize) {

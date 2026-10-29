@@ -147,6 +147,8 @@ struct MoviesGridView: View {
     private struct ContentKey: Hashable {
         let query: GridQuery
         let revision: Int
+        /// End of a load that left the list empty: built then, not stuck on the loading view.
+        let isLoading: Bool
     }
 
     private var hasActiveFilters: Bool {
@@ -190,8 +192,9 @@ struct MoviesGridView: View {
                         }
                     )
 
+                    // Still loading with nothing to show: not "No matching movie" for a split second.
                     if content == nil {
-                        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                        LoadingStateView()
                     } else if filteredMovies.isEmpty {
                         ContentUnavailableView {
                             Label("No matching movie", systemImage: "film.stack")
@@ -250,7 +253,7 @@ struct MoviesGridView: View {
                 // Vertical alphabet bar (PlxNative / Plex style)
                 if showsLetterSections {
                     AlphabetJumpBar(activeLetters: activeLetters) { letter in
-                        withAnimation(.easeInOut(duration: 0.25)) {
+                        withAnimation(Theme.Motion.standard) {
                             proxy.scrollTo("letter_\(letter)", anchor: .top)
                         }
                     }
@@ -259,10 +262,18 @@ struct MoviesGridView: View {
             }
         }
         .searchable(text: $search, prompt: "Search movies…")
+        .animation(Theme.Motion.fade, value: content == nil)
+        .onAppear {
+            if content == nil, let cached = model.gridCache["movies"], cached.query == gridQuery {
+                content = cached.content
+            }
+        }
         .task { await model.loadMoviesIfNeeded() }
-        .task(id: ContentKey(query: gridQuery, revision: model.moviesRevision)) {
+        .task(id: ContentKey(query: gridQuery, revision: model.moviesRevision, isLoading: model.isLoadingMovies)) {
             if !search.isEmpty { try? await Task.sleep(for: .milliseconds(150)) }
             guard !Task.isCancelled else { return }
+            // Still loading with nothing yet: the grid already shown (or the loading view) stays.
+            if model.isLoadingMovies && model.movies.isEmpty { return }
             let items = model.movies
             let query = gridQuery
             let built = await Task.detached(priority: .userInitiated) {
@@ -270,6 +281,7 @@ struct MoviesGridView: View {
             }.value
             guard !Task.isCancelled else { return }
             content = built
+            model.gridCache["movies"] = AppModel.CachedGrid(query: query, content: built)
         }
     }
 }

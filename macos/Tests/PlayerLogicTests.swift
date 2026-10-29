@@ -10,7 +10,7 @@ final class PlayerLogicTests: XCTestCase {
         XCTAssertEqual(PlayerKeyAction.from(keyCode: 124), .skipForward)
         XCTAssertEqual(PlayerKeyAction.from(keyCode: 126), .volumeUp)
         XCTAssertEqual(PlayerKeyAction.from(keyCode: 125), .volumeDown)
-        XCTAssertEqual(PlayerKeyAction.from(keyCode: 53), .close)
+        XCTAssertEqual(PlayerKeyAction.from(keyCode: 53), .escape)
         XCTAssertEqual(PlayerKeyAction.from(keyCode: 3), .toggleFullScreen)
         XCTAssertEqual(PlayerKeyAction.from(keyCode: 46), .toggleMute)
         XCTAssertNil(PlayerKeyAction.from(keyCode: 0))
@@ -325,6 +325,40 @@ final class MediaInfoTextTests: XCTestCase {
         var hdr = base
         hdr.videoRange = "DOVI"
         XCTAssertEqual(MediaInfoText.quality(hdr), "Dolby Vision")
+        hdr.videoRange = "DOVIWithHDR10"
+        XCTAssertEqual(MediaInfoText.quality(hdr), "Dolby Vision", "not the raw server value")
+    }
+
+    func testTheSoundIsNamedLikeOnTheBox() {
+        let atmos = StreamInfo(codec: "truehd", language: "eng", channels: 8, isDefault: true, isExternal: false,
+                               title: nil, profile: "Dolby TrueHD + Dolby Atmos", channelLayout: "7.1")
+        let stereo = StreamInfo(codec: "aac", language: "fre", channels: 2, isDefault: false, isExternal: false, title: nil)
+        let info = MediaInfo(container: "mkv", videoCodec: "hevc", width: 3840, height: 2160, videoRange: "HDR10",
+                             audio: [stereo, atmos], subtitles: [])
+        XCTAssertEqual(MediaInfoText.mainAudio(info), "Dolby Atmos · 7.1", "the default track")
+        XCTAssertEqual(MediaInfoText.audioFormats(info), "AAC · Stereo, Dolby Atmos · 7.1")
+    }
+
+    func testHDRIsShownOnlyWhereTheDisplayCan() {
+        XCTAssertTrue(HDROutput.isHDR(mode: "auto", transfer: "pq", headroom: 16))
+        XCTAssertTrue(HDROutput.isHDR(mode: "auto", transfer: "hlg", headroom: 2))
+        XCTAssertFalse(HDROutput.isHDR(mode: "auto", transfer: "pq", headroom: 1), "SDR display: converted")
+        XCTAssertFalse(HDROutput.isHDR(mode: "off", transfer: "pq", headroom: 16), "turned off in Settings")
+        XCTAssertFalse(HDROutput.isHDR(mode: "auto", transfer: "bt.1886", headroom: 16), "SDR video stays SDR")
+        XCTAssertEqual(HDROutput.peakNits(headroom: 16), 1600)
+        XCTAssertEqual(HDROutput.peakNits(headroom: 1.2), 203, "never below the HDR reference white")
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: HDROutput.mpvOptions(hdr: true, headroom: 16))["target-trc"], "pq")
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: HDROutput.mpvOptions(hdr: false, headroom: 16))["target-trc"], "auto")
+        XCTAssertEqual(HDROutput.summary(transfer: "pq", hdr: false), "HDR (PQ), converted to SDR")
+    }
+
+    func testSDRWithFloatingPointPixelsIsNeverLeftWithoutAColourSpace() {
+        let p3 = CGColorSpace(name: CGColorSpace.displayP3)
+        // Unlabelled floating-point pixels are read as linear light: SDR videos looked washed out.
+        XCTAssertTrue(HDROutput.layerColorSpace(hdr: false, floatingPoint: true, display: p3) === p3, "the display's own")
+        XCTAssertEqual(HDROutput.layerColorSpace(hdr: false, floatingPoint: true, display: nil)?.name, CGColorSpace.sRGB)
+        XCTAssertNil(HDROutput.layerColorSpace(hdr: false, floatingPoint: false, display: p3), "8-bit: as before")
+        XCTAssertEqual(HDROutput.layerColorSpace(hdr: true, floatingPoint: true, display: p3)?.name, CGColorSpace.itur_2100_PQ)
     }
 }
 
@@ -349,6 +383,7 @@ final class DetailTrackChoiceTests: XCTestCase {
         func jumpToChapter(_ index: Int) {}
         func setSubtitlePosition(_ percent: Double) {}
         func setProperty(_ name: String, to value: String) { calls.append("\(name)=\(value)") }
+        func setRenderingSuspended(_ suspended: Bool) {}
         var hostWindow: NSWindow? { nil }
     }
 
@@ -456,8 +491,27 @@ final class PlayerWindowTests: AppTestCase {
 
         controller.close()
         XCTAssertNil(controller.window)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4)) // fade out
         XCTAssertFalse(window.isVisible)
         host.close()
+    }
+
+    func testCloseFadesOutBeforeStoppingThePlayback() throws {
+        let model = AppModel()
+        let controller = PlayerWindowController()
+        model.playback = Playback(movie: makeItem(id: "m", type: "Movie"), url: "/nonexistent.mkv",
+                                  httpHeader: "", startSeconds: 0, subtitles: [])
+        controller.show(model: model)
+        let window = try XCTUnwrap(controller.window)
+
+        controller.dismiss()
+        XCTAssertNotNil(model.playback, "the picture stays while the window fades")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        XCTAssertNil(model.playback, "then the playback stops")
+        XCTAssertEqual(window.alphaValue, 0)
+        controller.close()
+        XCTAssertNil(controller.window)
+        XCTAssertFalse(window.isVisible, "already faded: closed at once")
     }
 
     func testTheMinimumSizeSurvivesSwiftUILayout() throws {
@@ -524,6 +578,17 @@ final class PlayerWindowTests: AppTestCase {
 }
 
 final class PlayerShortcutsTests: XCTestCase {
+    func testEscapeNeverStopsThePlayback() {
+        XCTAssertEqual(EscapeAction.resolve(infoSheetOpen: false, subtitleSettingsOpen: false, isFullScreen: true),
+                       .leaveFullScreen)
+        XCTAssertEqual(EscapeAction.resolve(infoSheetOpen: false, subtitleSettingsOpen: false, isFullScreen: false),
+                       .nothing, "in a window: Esc does nothing (\"Close\" or ⌘W stop the playback)")
+        XCTAssertEqual(EscapeAction.resolve(infoSheetOpen: true, subtitleSettingsOpen: false, isFullScreen: true),
+                       .closeInfoSheet, "an open panel first")
+        XCTAssertEqual(EscapeAction.resolve(infoSheetOpen: false, subtitleSettingsOpen: true, isFullScreen: false),
+                       .closeSubtitleSettings)
+    }
+
     func testEpisodeSubtitleAndSpeedKeys() {
         XCTAssertEqual(PlayerKeyAction.from(keyCode: 45), .nextEpisode)
         XCTAssertEqual(PlayerKeyAction.from(keyCode: 35), .previousEpisode)

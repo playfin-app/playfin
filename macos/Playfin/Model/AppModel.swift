@@ -76,6 +76,10 @@ final class AppModel {
     var latest: [Movie] = []
     /// The user's favourites (home row).
     var favorites: [Movie] = []
+    /// Last grid shown per library ("movies" for the Movies grid). The grids are built again in the background on
+    /// each visit: showing this one meanwhile avoids a blank frame (a flicker) before the posters appear.
+    @ObservationIgnored var gridCache: [String: CachedGrid] = [:]
+    struct CachedGrid { let query: GridQuery; let content: GridContent }
     /// "Recently added in …": one row per library.
     struct LibraryLatest { let library: UserView; let items: [Movie] }
     var latestByLibrary: [LibraryLatest] = []

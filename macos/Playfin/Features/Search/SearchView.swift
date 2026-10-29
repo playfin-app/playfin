@@ -156,10 +156,10 @@ struct SearchView: View {
                     .padding(.horizontal, Theme.Spacing.screenMargin)
                 }
                 if !model.latest.isEmpty {
-                    Shelf(title: "Recently added") {
+                    Shelf(title: "Recently added", cardWidth: Theme.Layout.posterWidth) {
                         ForEach(model.latest.prefix(12), id: \.id) { movie in
                             NavigationLink(value: Route.movie(movie.id)) {
-                                PosterCard(movie: movie).frame(width: Theme.Layout.posterWidth)
+                                ShelfCard(base: Theme.Layout.posterWidth) { PosterCard(movie: movie).frame(width: $0) }
                             }
                             .buttonStyle(CardButtonStyle())
                         }

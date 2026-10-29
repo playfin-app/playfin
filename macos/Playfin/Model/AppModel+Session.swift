@@ -385,6 +385,7 @@ extension AppModel {
         nextUp = []
         latest = []
         favorites = []
+        gridCache = [:]
         known = [:]
         playback = nil
         pendingSubtitles = []

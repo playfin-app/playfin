@@ -42,6 +42,8 @@ protocol PlayerEngine: AnyObject {
     func setPanScan(_ value: Double)
     func jumpToChapter(_ index: Int)
     func setSubtitlePosition(_ percent: Double)
+    /// Animated window resize: the last frame is scaled instead of drawing every size (smooth animation).
+    func setRenderingSuspended(_ suspended: Bool)
     /// Any other mpv property (subtitle style, delay…), applied at once.
     func setProperty(_ name: String, to value: String)
     /// Window that shows the player (the player keys must only act in this one).
@@ -92,6 +94,8 @@ final class PlayerController {
     var videoResolution: String = ""
     var cacheDuration: Double = 0
     var hwdecCurrent: String = ""
+    /// "SDR", "HDR (PQ), shown in HDR"… (Stream details).
+    var dynamicRange: String = ""
 
     /// Not observed: `MPVPlayerView` assigns it during every view update; a view reading it would then
     /// be redrawn endlessly.
@@ -408,6 +412,7 @@ final class PlayerController {
         videoCodec = ""
         audioCodec = ""
         videoResolution = ""
+        dynamicRange = ""
         showInfoSheet = false
         // mpv keeps the delay from one file to the next: the next episode starts in sync.
         if subtitleDelay != 0 { setSubtitleDelay(0) }
@@ -417,7 +422,7 @@ final class PlayerController {
     /// instead of being hidden too early by the first.
     private func triggerCenterSplash(icon: String) {
         splashTask?.cancel()
-        withAnimation(.easeOut(duration: 0.12)) {
+        withAnimation(Theme.Motion.splashIn) {
             centerSplashIcon = icon
             splashId &+= 1
             showCenterSplash = true
@@ -425,7 +430,7 @@ final class PlayerController {
         splashTask = Task {
             try? await Task.sleep(for: .milliseconds(550))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeIn(duration: 0.25)) { showCenterSplash = false }
+            withAnimation(Theme.Motion.splashOut) { showCenterSplash = false }
         }
     }
 }

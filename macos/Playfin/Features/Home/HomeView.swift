@@ -51,10 +51,10 @@ struct HomeView: View {
     }
 
     private func continueRow(_ title: String, items: [Movie]) -> some View {
-        Shelf(title: title) {
+        Shelf(title: title, cardWidth: Theme.Layout.continueWidth) {
             ForEach(items, id: \.id) { movie in
                 NavigationLink(value: Route.movie(movie.id)) {
-                    ContinueCard(movie: movie)
+                    ShelfCard(base: Theme.Layout.continueWidth) { ContinueCard(movie: movie, width: $0) }
                 }
                 .buttonStyle(CardButtonStyle())
             }
@@ -63,11 +63,12 @@ struct HomeView: View {
 
     private func posterRow(_ title: String, items: [Movie]) -> some View {
         let ratio = Movie.commonCardAspectRatio(of: items)
-        return Shelf(title: title) {
+        return Shelf(title: title, cardWidth: Theme.Layout.posterWidth) {
             ForEach(items, id: \.id) { movie in
                 NavigationLink(value: Route.movie(movie.id)) {
-                    PosterCard(movie: movie, imageHeight: 450, aspectRatio: ratio)
-                        .frame(width: Theme.Layout.posterWidth)
+                    ShelfCard(base: Theme.Layout.posterWidth) {
+                        PosterCard(movie: movie, imageHeight: 450, aspectRatio: ratio).frame(width: $0)
+                    }
                 }
                 .buttonStyle(CardButtonStyle())
             }
@@ -86,8 +87,19 @@ struct Shelf<Content: View>: View {
     /// prefetch changed the row height on every pass, the home was laid out again in an endless loop
     /// and the app froze.
     var isLazy = false
+    /// Usual width of the cards. Given: the cards are resized a little so that a whole number of them fills the row
+    /// (none cut by the window edge), and the arrows move by whole pages of cards. The cards read their width with
+    /// `ShelfCard`.
+    var cardWidth: CGFloat?
     @ViewBuilder let content: Content
     @StateObject private var scroller = ShelfScroller()
+    @State private var rowWidth: CGFloat = 0
+
+    private static var spacing: CGFloat { 18 }
+
+    private var fit: ShelfFit? {
+        cardWidth.map { ShelfFit(base: $0, available: rowWidth - 2 * horizontalPadding, spacing: Self.spacing) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -109,17 +121,24 @@ struct Shelf<Content: View>: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 Group {
                     if isLazy {
-                        LazyHStack(alignment: .top, spacing: 18) { content }
+                        LazyHStack(alignment: .top, spacing: Self.spacing) { content }
                     } else {
-                        HStack(alignment: .top, spacing: 18) { content }
+                        HStack(alignment: .top, spacing: Self.spacing) { content }
                     }
                 }
+                    .environment(\.shelfCardWidth, fit?.cardWidth)
                     .padding(.horizontal, horizontalPadding)
                     // Room for the hover zoom, otherwise the row clips it.
                     .padding(.vertical, 12)
                     .background(ScrollViewFinder(scroller: scroller))
             }
         }
+        .background(GeometryReader { geo in
+            Color.clear
+                .onAppear { rowWidth = geo.size.width }
+                .onChange(of: geo.size.width) { _, width in rowWidth = width }
+        })
+        .onChange(of: fit, initial: true) { _, fit in scroller.page = fit.map { ($0.stride, $0.cardsPerRow) } }
     }
 
     private func arrowButton(systemName: String, enabled: Bool, help: String, action: @escaping () -> Void) -> some View {
@@ -147,6 +166,9 @@ final class ShelfScroller: ObservableObject {
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
     nonisolated(unsafe) private var wheelMonitor: Any?
     private var pendingTargetX: CGFloat?
+    /// Fitted rows (see `Shelf.cardWidth`): distance from one card to the next and cards per page. The arrows then
+    /// move by whole pages and stop on a card edge.
+    var page: (stride: CGFloat, cards: Int)?
 
     func attach(_ scrollView: NSScrollView) {
         guard self.scrollView !== scrollView else { return }
@@ -222,7 +244,10 @@ final class ShelfScroller: ObservableObject {
         guard let scrollView else { return }
         let clip = scrollView.contentView
         let start = pendingTargetX ?? clip.bounds.origin.x
-        let target = min(max(minX(of: scrollView), start + direction * clip.bounds.width * 0.8), maxX(of: scrollView))
+        let wanted = page.map { ShelfFit.pageTarget(from: start, direction: direction, stride: $0.stride, cards: $0.cards,
+                                                     origin: minX(of: scrollView)) }
+            ?? start + direction * clip.bounds.width * 0.8
+        let target = min(max(minX(of: scrollView), wanted), maxX(of: scrollView))
         pendingTargetX = target
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.35
@@ -239,6 +264,49 @@ final class ShelfScroller: ObservableObject {
         observers.forEach(NotificationCenter.default.removeObserver)
         if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
     }
+}
+
+/// Card width of a fitted row (pure functions, tested): the whole number of cards closest to their usual width
+/// fills the row exactly, so no card is cut by the window edge.
+struct ShelfFit: Equatable {
+    let cardsPerRow: Int
+    let cardWidth: CGFloat
+    let stride: CGFloat
+
+    init(base: CGFloat, available: CGFloat, spacing: CGFloat) {
+        let room = max(available, base)
+        let count = max(1, Int(((room + spacing) / (base + spacing)).rounded()))
+        cardsPerRow = count
+        cardWidth = ((room - CGFloat(count - 1) * spacing) / CGFloat(count)).rounded(.down)
+        stride = cardWidth + spacing
+    }
+
+    /// Next page: whole cards further, on a card edge (positions measured from `origin`, the first card).
+    static func pageTarget(from x: CGFloat, direction: CGFloat, stride: CGFloat, cards: Int, origin: CGFloat) -> CGFloat {
+        let index = ((x - origin) / stride).rounded() + direction * CGFloat(cards)
+        return origin + max(0, index) * stride
+    }
+}
+
+private struct ShelfCardWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
+extension EnvironmentValues {
+    /// Width of the cards in a fitted `Shelf` (nil elsewhere).
+    var shelfCardWidth: CGFloat? {
+        get { self[ShelfCardWidthKey.self] }
+        set { self[ShelfCardWidthKey.self] = newValue }
+    }
+}
+
+/// A card of a fitted `Shelf`: gives the width chosen by the row (or the usual one before the row is measured).
+struct ShelfCard<Content: View>: View {
+    let base: CGFloat
+    @ViewBuilder let content: (CGFloat) -> Content
+    @Environment(\.shelfCardWidth) private var width
+
+    var body: some View { content(width ?? base) }
 }
 
 /// Conversion of the mouse wheel into horizontal scrolling of the rows (pure function, tested).
@@ -300,7 +368,7 @@ struct HeroBanner: View {
     private func loadFraming(_ movie: Movie) async {
         guard framings[movie.id] == nil, let framing = await FocalPointCache.shared.framing(for: backdropURL(movie))
         else { return }
-        withAnimation(.easeInOut(duration: 0.8)) { framings[movie.id] = framing }
+        withAnimation(Theme.Motion.hero) { framings[movie.id] = framing }
     }
     @Environment(\.scenePhase) private var scenePhase
 
@@ -437,6 +505,7 @@ struct HeroBanner: View {
 struct ContinueCard: View {
     @Environment(AppModel.self) private var model
     let movie: Movie
+    var width: CGFloat = Theme.Layout.continueWidth
     @State private var isHovered = false
 
     var body: some View {
@@ -450,7 +519,7 @@ struct ContinueCard: View {
                     targetBlurHashSize: CGSize(width: 48, height: 27),
                     contentMode: .fill
                 )
-                .frame(width: Theme.Layout.continueWidth, height: Theme.Layout.continueWidth * 9 / 16)
+                .frame(width: width, height: width * 9 / 16)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
 
                 if isHovered {
@@ -473,7 +542,7 @@ struct ContinueCard: View {
             Text(movie.episodeSubtitle ?? movie.remainingText ?? " ")
                 .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
         }
-        .frame(width: Theme.Layout.continueWidth, alignment: .leading)
+        .frame(width: width, alignment: .leading)
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .contextMenu {

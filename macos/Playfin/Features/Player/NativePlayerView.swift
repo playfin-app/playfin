@@ -138,12 +138,17 @@ struct NativePlayerView: View {
             // 5. Modal window of the playback information
             if controller.showInfoSheet {
                 PlayerInfoSheet(movie: playback.movie, controller: controller)
+                    .transition(Theme.Motion.panelTransition)
             }
             if controller.showSubtitleSettings {
                 SubtitleSettingsSheet(controller: controller, settings: model.settings)
+                    .transition(Theme.Motion.panelTransition)
             }
         }
         .background(Color.black)
+        // The panels open and close from many places (menu, ✕, Esc, gear): animated here once for all.
+        .animation(Theme.Motion.panel, value: controller.showInfoSheet)
+        .animation(Theme.Motion.panel, value: controller.showSubtitleSettings)
         .background(GeometryReader { geo in
             Color.clear
                 .onAppear { playerHeight = geo.size.height }
@@ -286,14 +291,14 @@ struct NativePlayerView: View {
     private func toggleMiniPlayer() {
         guard let window = controller.engine?.hostWindow else { return }
         if controller.isMiniPlayer {
-            MiniPlayer.exit(window, to: controller.frameBeforeMiniPlayer)
+            MiniPlayer.exit(window, to: controller.frameBeforeMiniPlayer, video: controller.engine)
             controller.frameBeforeMiniPlayer = nil
             controller.isMiniPlayer = false
         } else {
             // The panels are as wide as the small window: closed.
             controller.showInfoSheet = false
             controller.showSubtitleSettings = false
-            MiniPlayer.enter(window) { previous in
+            MiniPlayer.enter(window, video: controller.engine) { previous in
                 controller.frameBeforeMiniPlayer = previous
                 controller.isMiniPlayer = true
             }
@@ -310,13 +315,16 @@ struct NativePlayerView: View {
                     hasCommandModifier: event.modifierFlags.contains(.command)),
                   let action = PlayerKeyAction.from(keyCode: event.keyCode) else { return event }
             switch action {
-            case .close:
-                if controller.showInfoSheet {
-                    controller.showInfoSheet = false
-                } else if controller.showSubtitleSettings {
-                    controller.showSubtitleSettings = false
-                } else {
-                    onClose()
+            case .escape:
+                let window = controller.engine?.hostWindow
+                switch EscapeAction.resolve(
+                    infoSheetOpen: controller.showInfoSheet, subtitleSettingsOpen: controller.showSubtitleSettings,
+                    isFullScreen: window?.styleMask.contains(.fullScreen) == true
+                ) {
+                case .closeInfoSheet: controller.showInfoSheet = false
+                case .closeSubtitleSettings: controller.showSubtitleSettings = false
+                case .leaveFullScreen: window?.toggleFullScreen(nil)
+                case .nothing: break
                 }
             case .togglePause: controller.togglePlayPause()
             case .toggleFullScreen: toggleFullScreen()
@@ -336,7 +344,7 @@ struct NativePlayerView: View {
             case .slower: controller.stepSpeed(faster: false)
             case .faster: controller.stepSpeed(faster: true)
             }
-            if action != .close { revealControls() }
+            if action != .escape { revealControls() }
             return nil
         }
     }
@@ -470,6 +478,9 @@ struct PlayerInfoSheet: View {
                         ? "Software (CPU)"
                         : "VideoToolbox (Hardware)"
                 )
+                if !controller.dynamicRange.isEmpty {
+                    InfoRow(label: "Dynamic range", value: controller.dynamicRange)
+                }
                 if controller.cacheDuration > 0 {
                     InfoRow(label: "RAM cache", value: String(format: "%.1f s ahead", controller.cacheDuration))
                 }

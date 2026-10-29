@@ -263,6 +263,20 @@ struct DetailInfoLine: View {
                         .foregroundStyle(Theme.Colors.error)
                         .help(support.notes.joined(separator: "\n"))
                 }
+                // Picture and sound of the file, as on the box: "Dolby Vision", "Dolby Atmos · 7.1".
+                if let quality = MediaInfoText.quality(info) {
+                    FormatBadge(text: quality, help: info.videoBitDepth.map { "\($0)-bit colour" })
+                }
+                if let audio = MediaInfoText.mainAudio(info) {
+                    FormatBadge(text: audio)
+                }
+                // Something to know (Dolby Vision profile 5, AV1…) even when the file plays directly.
+                if support.directPlay, !support.notes.isEmpty {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.white.opacity(0.7))
+                        .help(support.notes.joined(separator: "\n"))
+                        .accessibilityLabel(support.notes.joined(separator: ". "))
+                }
             }
         }
         .font(.callout)
@@ -516,6 +530,7 @@ struct DetailAboutSection: View {
             MediaInfoText.quality(info)
         ].compactMap { $0 }.filter { !$0.isEmpty }
         if !video.isEmpty { rows.append(AboutRow(label: "Video", value: video.joined(separator: " · "))) }
+        if let sound = MediaInfoText.audioFormats(info) { rows.append(AboutRow(label: "Sound", value: sound)) }
         return rows
     }
 
@@ -542,9 +557,28 @@ enum MediaInfoText {
         return names.count > limit ? "\(shown) (+\(names.count - limit))" : shown
     }
 
-    /// "HDR10", "Dolby Vision"… (the resolution is already shown by the 4K / 1080p badge).
+    /// "HDR10", "HDR10+", "Dolby Vision", "HLG" (the resolution is already shown by the 4K / 1080p badge).
     static func quality(_ info: MediaInfo) -> String? {
-        guard let range = info.videoRange, range != "SDR", !range.isEmpty else { return nil }
-        return range == "DOVI" ? "Dolby Vision" : range
+        videoRangeLabel(info: info)
+    }
+
+    /// The track played by default (otherwise the first one): its format and channels, "Dolby Atmos · 7.1".
+    static func mainAudio(_ info: MediaInfo) -> String? {
+        guard let track = info.audio.first(where: \.isDefault) ?? info.audio.first else { return nil }
+        return audio(track)
+    }
+
+    /// "Dolby Atmos · 7.1", "AAC · Stereo".
+    static func audio(_ track: StreamInfo) -> String {
+        [audioFormatLabel(stream: track), audioChannelsLabel(stream: track)].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// Every sound format of the file, without repeats: "Dolby Atmos · 7.1, AAC · Stereo".
+    static func audioFormats(_ info: MediaInfo, limit: Int = 3) -> String? {
+        var formats: [String] = []
+        for track in info.audio where !formats.contains(audio(track)) { formats.append(audio(track)) }
+        guard !formats.isEmpty else { return nil }
+        let shown = formats.prefix(limit).joined(separator: ", ")
+        return formats.count > limit ? "\(shown) (+\(formats.count - limit))" : shown
     }
 }

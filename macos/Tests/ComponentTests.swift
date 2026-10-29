@@ -158,3 +158,25 @@ final class ComponentTests: AppTestCase {
         XCTAssertNil(missing, "404: no error, the placeholder simply stays")
     }
 }
+
+
+final class ShelfFitTests: XCTestCase {
+    func testAWholeNumberOfCardsFillsTheRow() {
+        // 1300 pt of row, 300 pt cards, 18 pt apart: 4 cards slightly wider, the last one ends at the edge.
+        let fit = ShelfFit(base: 300, available: 1300, spacing: 18)
+        XCTAssertEqual(fit.cardsPerRow, 4)
+        XCTAssertLessThanOrEqual(CGFloat(fit.cardsPerRow) * fit.cardWidth + 3 * 18, 1300)
+        XCTAssertGreaterThan(CGFloat(fit.cardsPerRow) * fit.cardWidth + 3 * 18, 1296)
+        XCTAssertEqual(fit.cardWidth, 311, accuracy: 1, "close to the usual width")
+        // Narrower than one card: one card, never zero.
+        XCTAssertEqual(ShelfFit(base: 300, available: 120, spacing: 18).cardsPerRow, 1)
+    }
+
+    func testTheArrowsMoveByWholePagesOnACardEdge() {
+        // From a position between two cards, the next page starts on a card edge.
+        XCTAssertEqual(ShelfFit.pageTarget(from: 0, direction: 1, stride: 100, cards: 4, origin: 0), 400)
+        XCTAssertEqual(ShelfFit.pageTarget(from: 430, direction: 1, stride: 100, cards: 4, origin: 0), 800)
+        XCTAssertEqual(ShelfFit.pageTarget(from: 400, direction: -1, stride: 100, cards: 4, origin: 0), 0)
+        XCTAssertEqual(ShelfFit.pageTarget(from: 100, direction: -1, stride: 100, cards: 4, origin: 0), 0, "not before the first card")
+    }
+}

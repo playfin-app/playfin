@@ -13,7 +13,7 @@ struct ShortcutsHelpView: View {
         ("Player", [
             ("Space", "Play / pause"), ("← / →", "Skip back / forward (length set in Settings)"),
             ("↑ / ↓", "Volume"), ("M", "Mute"), ("C", "Subtitles on / off"), ("[ / ]", "Slower / faster"),
-            ("P / N", "Previous / next episode"), ("F", "Full screen"), ("Esc", "Close the player")
+            ("P / N", "Previous / next episode"), ("F", "Full screen"), ("Esc", "Leave full screen")
         ])
     ]
 

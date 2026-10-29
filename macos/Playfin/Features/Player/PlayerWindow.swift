@@ -22,7 +22,7 @@ final class PlayerWindowController: NSObject, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let hosting = NSHostingController(rootView: PlayerWindowContent()
+        let hosting = NSHostingController(rootView: PlayerWindowContent(onClose: { [weak self] in self?.dismiss() })
             .environment(model)
             .preferredColorScheme(.dark)
             .tint(Theme.Colors.accent))
@@ -48,10 +48,21 @@ final class PlayerWindowController: NSObject, NSWindowDelegate {
             window.center()
         }
         self.window = window
-        window.makeKeyAndOrderFront(nil)
-        // Main window in full screen: the player goes full screen too (otherwise it would open on the desktop).
+        // Main window in full screen: the player goes full screen too (otherwise it would open on the desktop);
+        // macOS animates that itself. Otherwise the player fades in over the library.
         if hostWindow?.styleMask.contains(.fullScreen) == true {
+            window.makeKeyAndOrderFront(nil)
             window.toggleFullScreen(nil)
+        } else {
+            // Above the library but not active yet: a window that is no longer active turns its sidebar lighter,
+            // and that change showed through the fading player (a flicker). The player takes the keyboard once
+            // it fully covers the library.
+            window.alphaValue = 0
+            window.orderFront(nil)
+            WindowFade.in(window, duration: Theme.Motion.windowOpenFade) { [weak self, weak window] in
+                guard let window, self?.window === window else { return }
+                window.makeKey()
+            }
         }
     }
 
@@ -64,17 +75,50 @@ final class PlayerWindowController: NSObject, NSWindowDelegate {
         return [movie.displayTitle, movie.episodeSubtitle].compactMap { $0 }.joined(separator: " · ")
     }
 
-    /// Closes the window (playback over). Its full-screen space goes away with it.
+    /// "Close" button: the player fades out with its picture still showing, and only then does the playback stop
+    /// (stopped first, the video turned black before the fade).
+    func dismiss() {
+        guard let window, !isDismissing else { return }
+        // Full screen: macOS animates leaving the space itself (a fade would show an empty space first).
+        if window.styleMask.contains(.fullScreen) {
+            model?.playback = nil
+            return
+        }
+        isDismissing = true
+        // The library becomes active again before the fade (without coming forward): it shows its usual look
+        // through the fading player, not the lighter one of an inactive window.
+        hostWindow?.makeKey()
+        WindowFade.out(window) { [weak self] in
+            self?.isDismissing = false
+            self?.model?.playback = nil
+        }
+    }
+
+    private var isDismissing = false
+
+    /// Closes the window (playback over): it fades out over the library (its full-screen space goes away with it,
+    /// with macOS's own animation).
     func close() {
         guard let window else { return }
         self.window = nil
         window.delegate = nil
-        window.close()
-        hostWindow?.makeKeyAndOrderFront(nil)
+        // Already faded out by `dismiss`, or full screen (macOS animates leaving its space): closed at once.
+        if window.styleMask.contains(.fullScreen) || window.alphaValue == 0 {
+            window.close()
+            hostWindow?.makeKeyAndOrderFront(nil)
+        } else {
+            // The main window becomes active at once (its usual look shows through the fade) but comes forward
+            // only once the player is gone: brought forward earlier, it would hide the fade (same frame).
+            hostWindow?.makeKey()
+            WindowFade.out(window) { [weak hostWindow] in
+                window.close()
+                hostWindow?.makeKeyAndOrderFront(nil)
+            }
+        }
     }
 
-    /// No close / minimise / zoom buttons over the video: "Close", Esc and ⌘W close, F or the button goes full
-    /// screen, ⌘M still minimises.
+    /// No close / minimise / zoom buttons over the video: "Close" and ⌘W close, F or the button goes full screen
+    /// (Esc leaves it), ⌘M still minimises.
     static func hideWindowButtons(of window: NSWindow) {
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             window.standardWindowButton(button)?.isHidden = true
@@ -110,6 +154,7 @@ final class PlayerWindow: NSWindow {
 /// Content of the player window: the player of the current playback (black between two items).
 struct PlayerWindowContent: View {
     @Environment(AppModel.self) private var model
+    var onClose: () -> Void = {}
 
     var body: some View {
         if let playback = model.playback {
@@ -119,7 +164,7 @@ struct PlayerWindowContent: View {
                 onStart: { model.reportStart(playback.movie, seconds: $0) },
                 onProgress: { model.reportProgress(playback.movie, seconds: $0, isPaused: $1) },
                 onStop: { model.reportStopped(playback.movie, seconds: $0) },
-                onClose: { model.playback = nil },
+                onClose: onClose,
                 onFailure: { model.offlineAlertMessage = $0 },
                 onFinished: { model.playbackFinished() },
                 skipBackSeconds: model.settings.values.skipBackSeconds,
@@ -178,32 +223,32 @@ enum MiniPlayer {
 
     /// Small window in the bottom-right corner of the screen. Returns the frame to give back on exit.
     /// In full screen, we first leave it (macOS animation), then shrink.
-    static func enter(_ window: NSWindow, onEntered: @escaping @MainActor (NSRect) -> Void) {
+    static func enter(_ window: NSWindow, video: (any PlayerEngine)? = nil, onEntered: @escaping @MainActor (NSRect) -> Void) {
         if window.styleMask.contains(.fullScreen) {
             var observer: NSObjectProtocol?
             observer = NotificationCenter.default.addObserver(
                 forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
             ) { _ in
                 if let observer { NotificationCenter.default.removeObserver(observer) }
-                MainActor.assumeIsolated { onEntered(shrink(window)) }
+                MainActor.assumeIsolated { onEntered(shrink(window, video: video)) }
             }
             window.toggleFullScreen(nil)
         } else {
-            onEntered(shrink(window))
+            onEntered(shrink(window, video: video))
         }
     }
 
     /// Back to the normal player, where it was before.
-    static func exit(_ window: NSWindow, to frame: NSRect?) {
+    static func exit(_ window: NSWindow, to frame: NSRect?, video: (any PlayerEngine)? = nil) {
         window.level = .normal
         window.collectionBehavior.remove([.canJoinAllSpaces, .fullScreenAuxiliary])
         window.collectionBehavior.insert(.fullScreenPrimary)
         (window as? PlayerWindow)?.minimumContentSize = PlayerWindowController.minimumSize
         let fallback = NSRect(origin: window.frame.origin, size: NSSize(width: 1280, height: 720))
-        resize(window, to: frame ?? fallback)
+        resize(window, to: frame ?? fallback, video: video)
     }
 
-    private static func shrink(_ window: NSWindow) -> NSRect {
+    private static func shrink(_ window: NSWindow, video: (any PlayerEngine)?) -> NSRect {
         let previous = window.frame
         (window as? PlayerWindow)?.minimumContentSize = minimumSize
         window.level = .floating
@@ -212,25 +257,56 @@ enum MiniPlayer {
         if let screen = (window.screen ?? NSScreen.main)?.visibleFrame {
             let content = NSRect(x: screen.maxX - size.width - margin, y: screen.minY + margin,
                                  width: size.width, height: size.height)
-            resize(window, to: window.frameRect(forContentRect: content))
+            resize(window, to: window.frameRect(forContentRect: content), video: video)
         }
         return previous
     }
 
-    /// An animated resize stretched the video at each step (mpv draws every size in between): the window fades
-    /// out, jumps to its new frame, and fades back in. The playback goes on meanwhile.
-    private static func resize(_ window: NSWindow, to frame: NSRect) {
+    /// The window glides to its new frame. mpv stops drawing meanwhile (drawing every size in between made the
+    /// video jerky): Core Animation scales its last frame, then mpv draws again at the new size. The playback
+    /// (and the sound) goes on. With Reduce motion: a fade, then a jump to the new frame.
+    private static func resize(_ window: NSWindow, to frame: NSRect, video: (any PlayerEngine)?) {
+        if Theme.Motion.reduceMotion {
+            WindowFade.out(window) {
+                window.setFrame(frame, display: true)
+                WindowFade.in(window)
+            }
+            return
+        }
+        video?.setRenderingSuspended(true)
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.12
+            context.duration = Theme.Motion.pictureInPictureResize
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1) // Apple's "ease"
+            window.animator().setFrame(frame, display: true)
+        }, completionHandler: {
+            MainActor.assumeIsolated { video?.setRenderingSuspended(false) }
+        })
+    }
+}
+
+/// Window fades with Apple's ease-in-ease-out curve (duration from `Theme.Motion.windowFade`).
+@MainActor
+enum WindowFade {
+    static func `in`(
+        _ window: NSWindow, duration: TimeInterval = Theme.Motion.windowFade,
+        then completion: (@MainActor () -> Void)? = nil
+    ) {
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            window.animator().alphaValue = 1
+        }, completionHandler: {
+            MainActor.assumeIsolated { completion?() }
+        })
+    }
+
+    static func out(_ window: NSWindow, then completion: @escaping @MainActor () -> Void) {
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = Theme.Motion.windowFade * 0.8
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             window.animator().alphaValue = 0
         }, completionHandler: {
-            MainActor.assumeIsolated {
-                window.setFrame(frame, display: true)
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.18
-                    window.animator().alphaValue = 1
-                }
-            }
+            MainActor.assumeIsolated { completion() }
         })
     }
 }

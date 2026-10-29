@@ -34,6 +34,15 @@ pub struct AppSettings {
     pub subtitle_color: String,
     /// "none", "translucent" or "black".
     pub subtitle_background: String,
+    /// HDR video: "auto" (real HDR on a display that can show it, converted to SDR elsewhere) or "off"
+    /// (always converted to SDR).
+    pub hdr_mode: String,
+    /// Audio channels sent to the output: "auto" (all of them, 5.1 / 7.1 on a surround system) or "stereo".
+    pub audio_channels: String,
+    /// Dolby Digital, Dolby Digital Plus and DTS sent as they are to an amplifier (HDMI / optical), which decodes them.
+    pub audio_passthrough: bool,
+    /// Smoother motion (24 fps films on a 60 Hz display): frames timed on the display, blended when needed.
+    pub smooth_motion: bool,
     /// "low", "normal", "high" or "custom".
     pub cache_preset: String,
     /// "custom" preset: memory ahead (MiB), memory behind (MiB) and seconds kept ahead.
@@ -76,6 +85,10 @@ impl Default for AppSettings {
             subtitle_size: "medium".into(),
             subtitle_color: "white".into(),
             subtitle_background: "none".into(),
+            hdr_mode: "auto".into(),
+            audio_channels: "auto".into(),
+            audio_passthrough: false,
+            smooth_motion: false,
             cache_preset: "normal".into(),
             custom_cache_max_mib: 150,
             custom_cache_back_mib: 50,
@@ -140,6 +153,8 @@ impl AppSettings {
         self.download_folder = self.download_folder.trim().to_string();
         self.audio_language = language_code(&self.audio_language);
         self.subtitle_language = language_code(&self.subtitle_language);
+        self.hdr_mode = one_of(&self.hdr_mode, &["auto", "off"], "auto");
+        self.audio_channels = one_of(&self.audio_channels, &["auto", "stereo"], "auto");
         self.subtitle_size = one_of(
             &self.subtitle_size,
             &["xsmall", "small", "medium", "large"],
@@ -361,6 +376,29 @@ pub fn mpv_options(settings: AppSettings, system_languages: Vec<String>) -> Vec<
         }
         _ => {}
     }
+    add(
+        "audio-channels",
+        if s.audio_channels == "stereo" {
+            "stereo"
+        } else {
+            "auto"
+        }
+        .into(),
+    );
+    if s.audio_passthrough {
+        // Only the formats an amplifier receives over HDMI / optical: TrueHD (and its Atmos) cannot be passed
+        // through on macOS, it is decoded (its 7.1 base) like the others.
+        add("audio-spdif", "ac3,eac3,dts".into());
+    }
+    if s.smooth_motion {
+        add("video-sync", "display-resample".into());
+        add("interpolation", "yes".into());
+        add("tscale", "oversample".into());
+    }
+    // HDR: the app sets the output (real HDR or SDR) for each video, depending on the display (see the player).
+    // Converted to SDR, the brightest parts keep their detail.
+    add("tone-mapping", "bt.2390".into());
+    add("hdr-compute-peak", "yes".into());
     add("msg-level", format!("all={}", mpv_log_level(&s.log_level)));
 
     let mut result: Vec<MpvOption> = options
@@ -541,6 +579,35 @@ mod tests {
             assert_eq!(get(&o, "cache-secs"), Some(secs));
             assert_eq!(cache_preset_memory_mib(preset.into()), mem);
         }
+    }
+
+    #[test]
+    fn audio_and_motion_options_follow_the_settings() {
+        let plain = mpv_options(AppSettings::default(), vec![]);
+        assert_eq!(
+            get(&plain, "audio-channels"),
+            Some("auto"),
+            "5.1 / 7.1 kept by default"
+        );
+        assert_eq!(get(&plain, "audio-spdif"), None);
+        assert_eq!(get(&plain, "video-sync"), None);
+
+        let mut s = AppSettings::default();
+        s.audio_channels = "stereo".into();
+        s.audio_passthrough = true;
+        s.smooth_motion = true;
+        let o = mpv_options(s, vec![]);
+        assert_eq!(get(&o, "audio-channels"), Some("stereo"));
+        assert_eq!(get(&o, "audio-spdif"), Some("ac3,eac3,dts"));
+        assert_eq!(get(&o, "video-sync"), Some("display-resample"));
+        assert_eq!(get(&o, "interpolation"), Some("yes"));
+
+        let mut odd = AppSettings::default();
+        odd.hdr_mode = "maybe".into();
+        odd.audio_channels = "9.1".into();
+        let odd = odd.sanitized();
+        assert_eq!(odd.hdr_mode, "auto");
+        assert_eq!(odd.audio_channels, "auto");
     }
 
     #[test]

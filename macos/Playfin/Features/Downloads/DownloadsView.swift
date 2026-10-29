@@ -74,10 +74,10 @@ struct DownloadsView: View {
     }
 
     private func shelf(_ title: String, items: [Movie]) -> some View {
-        Shelf(title: title, horizontalPadding: 0) {
+        Shelf(title: title, horizontalPadding: 0, cardWidth: Theme.Layout.posterWidth) {
             ForEach(items, id: \.id) { item in
                 NavigationLink(value: Route.movie(item.id)) {
-                    PosterCard(movie: item).frame(width: Theme.Layout.posterWidth)
+                    ShelfCard(base: Theme.Layout.posterWidth) { PosterCard(movie: item).frame(width: $0) }
                 }
                 .buttonStyle(CardButtonStyle())
                 .contextMenu {

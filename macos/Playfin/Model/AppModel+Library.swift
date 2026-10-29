@@ -311,6 +311,7 @@ extension AppModel {
 
     func clearMetadataCache() {
         client?.clearCache()
+        gridCache = [:]
         movies = []
         libraryItems = []
         loadedLibraryId = nil

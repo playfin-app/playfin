@@ -3,13 +3,13 @@ import CoreGraphics
 
 /// Action triggered by a player key. A single table for the whole player (testable without the interface).
 enum PlayerKeyAction: Equatable {
-    case close, togglePause, toggleFullScreen, toggleMute, skipBack, skipForward, volumeUp, volumeDown
+    case escape, togglePause, toggleFullScreen, toggleMute, skipBack, skipForward, volumeUp, volumeDown
     case nextEpisode, previousEpisode, toggleSubtitles, slower, faster
 
     /// Physical key codes (positions of a QWERTY keyboard).
     static func from(keyCode: UInt16) -> PlayerKeyAction? {
         switch keyCode {
-        case 53: return .close
+        case 53: return .escape
         case 49: return .togglePause
         case 3: return .toggleFullScreen
         case 46: return .toggleMute
@@ -30,6 +30,18 @@ enum PlayerKeyAction: Equatable {
     /// (⌘M must minimise, ⌘W close, ⌘F search: not mute, nothing or full screen).
     static func shouldHandle(eventWindowIsPlayerWindow: Bool, isTypingText: Bool, hasCommandModifier: Bool = false) -> Bool {
         eventWindowIsPlayerWindow && !isTypingText && !hasCommandModifier
+    }
+}
+
+/// What Esc does in the player: closes the panel that is open, otherwise leaves full screen. It never stops the
+/// playback ("Close" and ⌘W do), so a key pressed to leave full screen cannot end the video by surprise.
+enum EscapeAction: Equatable {
+    case closeInfoSheet, closeSubtitleSettings, leaveFullScreen, nothing
+
+    static func resolve(infoSheetOpen: Bool, subtitleSettingsOpen: Bool, isFullScreen: Bool) -> EscapeAction {
+        if infoSheetOpen { return .closeInfoSheet }
+        if subtitleSettingsOpen { return .closeSubtitleSettings }
+        return isFullScreen ? .leaveFullScreen : .nothing
     }
 }
 
@@ -198,5 +210,49 @@ enum ScrubberMarks {
         case "Preview": "Preview"
         default: nil
         }
+    }
+}
+
+/// HDR output of the player (pure functions, tested). A PQ or HLG video on a display that can go brighter than
+/// its white (EDR: MacBook Pro XDR, Pro Display XDR, HDR monitors) is shown in real HDR; elsewhere mpv converts it
+/// to SDR.
+enum HDROutput {
+    /// `transfer`: mpv's `video-params/gamma` ("pq", "hlg", "bt.1886"…). `headroom`: the display's
+    /// `maximumPotentialExtendedDynamicRangeColorComponentValue` (1 = no HDR).
+    static func isHDR(mode: String, transfer: String, headroom: CGFloat) -> Bool {
+        mode == "auto" && isHDRVideo(transfer: transfer) && headroom > 1
+    }
+
+    static func isHDRVideo(transfer: String) -> Bool {
+        transfer == "pq" || transfer == "hlg"
+    }
+
+    /// Brightest white mpv may produce, in nits: macOS's SDR white is ~100 nits, the headroom multiplies it
+    /// (a MacBook Pro XDR reports 16, i.e. its 1600 nits).
+    static func peakNits(headroom: CGFloat) -> Int {
+        Int(min(10_000, max(203, headroom * 100)).rounded())
+    }
+
+    /// mpv options of the output: PQ in BT.2020 for real HDR, back to automatic (SDR, converted) otherwise.
+    static func mpvOptions(hdr: Bool, headroom: CGFloat) -> [(String, String)] {
+        hdr
+            ? [("target-trc", "pq"), ("target-prim", "bt.2020"), ("target-peak", String(peakNits(headroom: headroom)))]
+            : [("target-trc", "auto"), ("target-prim", "auto"), ("target-peak", "auto")]
+    }
+
+    /// Colour space of the video layer. HDR: BT.2100 PQ. SDR with floating-point pixels: the display's own (gamma
+    /// encoded), otherwise macOS takes the pixels for linear light and the picture looks washed out; sRGB if the
+    /// display gives none. SDR with 8-bit pixels: none, as always (sent to the display as they are).
+    static func layerColorSpace(hdr: Bool, floatingPoint: Bool, display: CGColorSpace?) -> CGColorSpace? {
+        if hdr { return CGColorSpace(name: CGColorSpace.itur_2100_PQ) }
+        guard floatingPoint else { return nil }
+        return display ?? CGColorSpace(name: CGColorSpace.sRGB)
+    }
+
+    /// "Stream details" line: what the file is and what reaches the display.
+    static func summary(transfer: String, hdr: Bool) -> String {
+        guard isHDRVideo(transfer: transfer) else { return "SDR" }
+        let kind = transfer == "pq" ? "HDR (PQ)" : "HDR (HLG)"
+        return hdr ? "\(kind), shown in HDR" : "\(kind), converted to SDR"
     }
 }

@@ -96,7 +96,7 @@ struct LibraryView: View {
             }
             // Escape: back to the previous page, whatever has the keyboard focus.
             .background(EscapeToGoBack { goBack() })
-            .animation(.easeInOut(duration: 0.25), value: model.isServerUnreachable)
+            .animation(Theme.Motion.standard, value: model.isServerUnreachable)
             // A single background for all screens: nothing changes tint while navigating.
             .background(Theme.Colors.background.ignoresSafeArea())
             .alert(

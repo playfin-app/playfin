@@ -13,9 +13,10 @@ cask "playfin" do
   app "Playfin.app"
 
   # Unnotarised build (no Apple Developer account): we remove the quarantine so the app opens.
-  # Kept as `postflight`: the newer `postflight_steps` has no step that can remove the quarantine.
-  postflight do
-    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/Playfin.app"]
+  # Done on the unpacked app, before it is moved to the Applications folder (the move keeps it that way).
+  preflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "Playfin.app"], chdir: ".",
+                          writable_paths: ["Playfin.app"]
   end
 
   zap trash: [

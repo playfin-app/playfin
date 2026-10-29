@@ -35,6 +35,7 @@ Playfin is an independent, open-source client for [Jellyfin](https://jellyfin.or
 
 ```bash
 brew tap playfin-app/tap
+brew trust playfin-app/tap   # recent Homebrew versions ask to trust third-party taps once
 brew install --cask playfin
 ```
 

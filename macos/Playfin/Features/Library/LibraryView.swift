@@ -209,14 +209,16 @@ struct LibraryView: View {
         }
     }
 
-    /// True when the visible section has a page to close (never during playback).
+    /// True when the visible section has a page to close. Allowed during playback: the player has its own window,
+    /// and `GoBackMonitor` only reacts to the events of the main window (the "Back" menu item stays disabled).
     private var canGoBack: Bool {
-        model.playback == nil && !pages.isEmpty && !swipe.isActive
+        !pages.isEmpty && !swipe.isActive
     }
 
     /// Opens a page over the current one: it fades in, the current one staying drawn under it meanwhile.
+    /// Allowed during playback: the links are only in the main window, the player is in its own.
     private func open(_ route: Route) {
-        guard model.playback == nil, !swipe.isActive else { return }
+        guard !swipe.isActive else { return }
         showsPageBelow = true
         withAnimation(Theme.Motion.page) {
             pages.append(OpenedPage(route: route))
@@ -225,8 +227,7 @@ struct LibraryView: View {
         }
     }
 
-    /// Closes the current page: it fades out over the previous one. False when there is nothing to close
-    /// (or during playback).
+    /// Closes the current page: it fades out over the previous one. False when there is nothing to close.
     private func goBack() -> Bool {
         guard canGoBack else { return false }
         withAnimation(Theme.Motion.page) { _ = pages.popLast() }

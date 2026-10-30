@@ -119,6 +119,9 @@ final class MPVNSView: NSView {
         mpv_initialize(mpv)
         // With keep-open, mpv does not send "end of file": we observe `eof-reached` instead.
         mpv_observe_property(mpv, 0, "eof-reached", MPV_FORMAT_FLAG)
+        // Tracks and chapters are only re-read when mpv says they changed (not 4 times per second).
+        mpv_observe_property(mpv, 0, "track-list", MPV_FORMAT_NONE)
+        mpv_observe_property(mpv, 0, "chapter-list", MPV_FORMAT_NONE)
 
         mpvLayer = MPVLayer(mpv: mpv, floatingPoint: settings.hdrMode == "auto")
         mpvLayer.opacity = 0
@@ -400,8 +403,10 @@ final class MPVNSView: NSView {
         guard controller != nil, !isDestroyed, !pollInFlight else { return }
         pollInFlight = true
         let handle = self.handle
+        let readLists = listsChanged
+        listsChanged = false
         Self.pollQueue.async {
-            let snapshot = handle.withHandle { MPVSnapshot.read($0) }
+            let snapshot = handle.withHandle { MPVSnapshot.read($0, includeLists: readLists) }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.pollInFlight = false
@@ -415,10 +420,14 @@ final class MPVNSView: NSView {
         guard let controller else { return }
         cachedPosition = snapshot.position
         cachedDuration = snapshot.duration
-        cachedPaused = snapshot.paused
+        if cachedPaused != snapshot.paused {
+            cachedPaused = snapshot.paused
+            scheduleSyncTimer()
+        }
         if snapshot.position > 0 { lastKnownPosition = snapshot.position }
-        let audios = snapshot.tracks.filter { $0.type == "audio" }
-        let subs = snapshot.tracks.filter { $0.type == "sub" }
+        // No lists in this snapshot (unchanged): keep the ones already shown.
+        let audios = snapshot.tracks?.filter { $0.type == "audio" } ?? controller.audioTracks
+        let subs = snapshot.tracks?.filter { $0.type == "sub" } ?? controller.subtitleTracks
         controller.update(
             position: snapshot.position,
             duration: snapshot.duration,
@@ -436,7 +445,7 @@ final class MPVNSView: NSView {
             cacheDuration: snapshot.cacheDuration,
             hwdecCurrent: snapshot.hwdec
         )
-        if controller.chapters != snapshot.chapters { controller.chapters = snapshot.chapters }
+        if let chapters = snapshot.chapters, controller.chapters != chapters { controller.chapters = chapters }
     }
 
     // MARK: - HDR and display
@@ -454,6 +463,11 @@ final class MPVNSView: NSView {
                 command(["set", name, value])
             }
             isHDROutput = hdr
+        }
+        // With floating-point pixels mpv no longer dithers: SDR got light banding (skies, dark scenes) compared
+        // with the 8-bit layer. SDR: dithered to 8 bits as before; HDR: none, the full precision is kept.
+        if mpvLayer.isFloatingPoint {
+            command(["set", "dither-depth", hdr ? "auto" : "8"])
         }
         // Every video, SDR included: the layer must say how to read its pixels (see `setHDROutput`).
         mpvLayer.setHDROutput(hdr, sdrColorSpace: screen?.colorSpace?.cgColorSpace)
@@ -527,7 +541,13 @@ final class MPVNSView: NSView {
     private func handlePropertyChange(_ event: mpv_event) {
         guard let data = event.data else { return }
         let property = data.bindMemory(to: mpv_event_property.self, capacity: 1).pointee
-        guard String(cString: property.name) == "eof-reached", property.format == MPV_FORMAT_FLAG,
+        let name = String(cString: property.name)
+        if name == "track-list" || name == "chapter-list" {
+            listsChanged = true
+            updatePlaybackState()
+            return
+        }
+        guard name == "eof-reached", property.format == MPV_FORMAT_FLAG,
               let value = property.data?.bindMemory(to: Int32.self, capacity: 1).pointee else { return }
         guard value != 0 else { didReportFinished = false; return } // jumped back: the end can be reported again
         let pos = max(position, lastKnownPosition)
@@ -559,16 +579,21 @@ final class MPVNSView: NSView {
             }
         }
 
-        // High-frequency synchronisation to SwiftUI (4 times per second)
+        scheduleSyncTimer()
+        updatePlaybackState()
+    }
+
+    /// Synchronisation to SwiftUI: 4 times per second during playback, once per second in pause
+    /// (nothing moves, but a pause or resume from elsewhere is still seen).
+    private func scheduleSyncTimer() {
+        guard isFileLoaded else { return }
         playbackSyncTimer?.invalidate()
-        playbackSyncTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        playbackSyncTimer = Timer.scheduledTimer(withTimeInterval: isPaused ? 1 : 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, !self.isDestroyed else { return }
                 self.updatePlaybackState()
             }
         }
-
-        updatePlaybackState()
     }
 
     /// Last values read by `updatePlaybackState` (never a blocking read on the main thread).
@@ -576,6 +601,8 @@ final class MPVNSView: NSView {
     private var cachedDuration = 0.0
     private var cachedPaused = false
     private var pollInFlight = false
+    /// Set when mpv reports a change of `track-list` / `chapter-list`: the next read includes them.
+    private var listsChanged = true
     private static let pollQueue = DispatchQueue(label: "com.playfin.app.mpv.poll", qos: .userInitiated)
     private lazy var handle = MPVHandle(mpv: mpv)
 
@@ -909,10 +936,11 @@ struct MPVSnapshot: Sendable {
     var audioCodec = ""
     var resolution = ""
     var hwdec = ""
-    var tracks: [TrackItem] = []
-    var chapters: [ChapterItem] = []
+    /// `nil` when not read (unchanged since the last read).
+    var tracks: [TrackItem]?
+    var chapters: [ChapterItem]?
 
-    static func read(_ mpv: OpaquePointer) -> MPVSnapshot {
+    static func read(_ mpv: OpaquePointer, includeLists: Bool) -> MPVSnapshot {
         var s = MPVSnapshot()
         func double(_ name: String) -> Double {
             var value = 0.0
@@ -951,8 +979,10 @@ struct MPVSnapshot: Sendable {
             s.resolution = tier.map { "\(width) × \(height) (\($0))" } ?? "\(width) × \(height)"
         }
         s.hwdec = string("hwdec-current")
-        s.tracks = MPVNSView.readTracks(mpv)
-        s.chapters = MPVNSView.readChapters(mpv)
+        if includeLists {
+            s.tracks = MPVNSView.readTracks(mpv)
+            s.chapters = MPVNSView.readChapters(mpv)
+        }
         return s
     }
 }

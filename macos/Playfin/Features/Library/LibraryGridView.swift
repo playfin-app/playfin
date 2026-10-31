@@ -114,13 +114,13 @@ struct LibraryGridView: View {
                     } else {
                         ScrollView {
                             if showsLetterSections {
-                                LazyVStack(alignment: .leading, spacing: 24, pinnedViews: [.sectionHeaders]) {
+                                // A single grid with sections: a lazy grid inside a lazy stack could re-measure itself
+                                // endlessly and freeze the app.
+                                LazyVGrid(columns: columns, alignment: .leading, spacing: 24, pinnedViews: [.sectionHeaders]) {
                                     ForEach(groupedLetterSections, id: \.letter) { section in
                                         Section {
-                                            LazyVGrid(columns: columns, spacing: 24) {
-                                                ForEach(section.movies, id: \.id) { movie in
-                                                    gridItemCard(for: movie)
-                                                }
+                                            ForEach(section.movies, id: \.id) { movie in
+                                                gridItemCard(for: movie)
                                             }
                                         } header: {
                                             LetterSectionHeader(letter: section.letter, count: section.movies.count)

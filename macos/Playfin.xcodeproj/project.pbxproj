@@ -771,7 +771,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.11.2;
+				MARKETING_VERSION = 0.11.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.playfin.app;
 				SDKROOT = macosx;
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -802,7 +802,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.11.2;
+				MARKETING_VERSION = 0.11.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.playfin.app;
 				SDKROOT = macosx;
 				SWIFT_STRICT_CONCURRENCY = complete;

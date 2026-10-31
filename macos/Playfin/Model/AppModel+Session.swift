@@ -336,6 +336,13 @@ extension AppModel {
             stopBackgroundProber()
             screen = .library
             Task { await downloads.flushReports() }
+            // The server answers at the right address: the banner titles can be picked now. If that fails too,
+            // the banner stops waiting and shows the titles in progress.
+            Task {
+                if featured.isEmpty { await loadFeatured() }
+                guard self.client === client else { return }
+                isChoosingFeatured = false
+            }
         } catch {
             guard self.client === client else { return }
             if isSessionExpired(error) {
@@ -349,6 +356,8 @@ extension AppModel {
                 startBackgroundProber()
                 return .offline
             }
+            // No new banner titles without the server: the titles in progress meanwhile.
+            isChoosingFeatured = false
             screen = .library
         }
 

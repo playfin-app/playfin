@@ -41,8 +41,20 @@ extension AppModel {
     }
 
     /// Shows the saved choice while it is recent, otherwise picks new titles. Offline, the titles shown stay.
+    /// A failure does not end `isChoosingFeatured`: at launch the server address may not be chosen yet, and the
+    /// banner keeps waiting rather than falling back to other titles (`openSession` ends the wait).
     func loadFeatured() async {
-        defer { isChoosingFeatured = false }
+        // One choice at a time: otherwise two random choices, and the banner would change twice.
+        while let running = featuredLoad { await running.value }
+        let load = Task {
+            await chooseFeatured()
+            featuredLoad = nil
+        }
+        featuredLoad = load
+        await load.value
+    }
+
+    private func chooseFeatured() async {
         guard let client else { return }
 
         if let saved = savedFeaturedChoice, saved.isFresh() {
@@ -72,6 +84,7 @@ extension AppModel {
     private func showFeatured(_ items: [Movie]) {
         remember(items)
         withAnimation(Theme.Motion.hero) { featured = items }
+        isChoosingFeatured = false
     }
 
     /// The saved titles, in their order: already known ones at once, the others asked to the server together.

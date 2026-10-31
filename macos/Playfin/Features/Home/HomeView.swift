@@ -49,8 +49,10 @@ struct HomeView: View {
             await model.loadFeatured()
             guard scenePhase == .active else { return }
             while !Task.isCancelled {
-                // At least a minute between two tries (offline, the choice cannot be renewed).
-                try? await Task.sleep(for: .seconds(max(60, model.featuredTimeLeft + 1)))
+                // No titles picked yet (server not reachable at launch): another try soon. Otherwise at least a
+                // minute between two tries (offline, the choice cannot be renewed).
+                let delay = model.featured.isEmpty ? 15 : max(60, model.featuredTimeLeft + 1)
+                try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled else { return }
                 await model.loadFeatured()
             }

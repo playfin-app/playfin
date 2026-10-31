@@ -90,6 +90,8 @@ final class AppModel {
     /// True until the first choice of banner titles is made: the banner waits for it rather than showing other
     /// titles that it would replace a moment later.
     var isChoosingFeatured = true
+    /// The choice of banner titles in progress: the home and the session can both ask for one at launch.
+    @ObservationIgnored var featuredLoad: Task<Void, Never>?
     /// Last grid shown per library ("movies" for the Movies grid). The grids are built again in the background on
     /// each visit: showing this one meanwhile avoids a blank frame (a flicker) before the posters appear.
     @ObservationIgnored var gridCache: [String: CachedGrid] = [:]

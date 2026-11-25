@@ -18,7 +18,7 @@ required-features = ["bindgen"]
 [features]
 default = ["aws-lc-tls"]
 aws-lc-tls = ["reqwest/rustls"]
-ring-tls = ["dep:rustls", "reqwest/rustls-no-provider", "rustls?/ring"]
+ring-tls = ["dep:rustls", "reqwest/rustls-no-provider", "rustls?/ring", "rustls?/std"]
 bundled-roots = ["dep:webpki-root-certs"]
 bindgen = ["uniffi/cli"]
 

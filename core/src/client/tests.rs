@@ -736,11 +736,11 @@ fn default_client_identity_keeps_mac_auth_header() {
 #[test]
 fn custom_client_identity_sanitizes_and_sets_auth_header() {
     let dir = std::env::temp_dir().join(format!("playfin-id-webos-{}", uuid::Uuid::new_v4()));
-    let identity = ClientIdentity::new("Playfin\n\"\"", "  LG \"webOS\" \r\n");
+    let identity = ClientIdentity::new("Playfin\n\"\\\"", "  LG \"webOS\"\\é \r\n");
     assert_eq!(identity.client(), "Playfin");
     assert_eq!(identity.device(), "LG webOS");
 
-    let empty = ClientIdentity::new(" \"\" ", "\n\t");
+    let empty = ClientIdentity::new(" \"\"\\ ", "\n\t");
     assert_eq!(empty, ClientIdentity::default());
 
     let c = JellyfinClient::new_with_identity(
@@ -752,6 +752,23 @@ fn custom_client_identity_sanitizes_and_sets_auth_header() {
         c.auth_header()
             .contains(r#"Client="Playfin", Device="LG webOS""#)
     );
+
+    let restored = JellyfinClient::restore_with_identity(
+        SessionInfo {
+            server_url: "http://localhost:8096".into(),
+            server_id: "srv1".into(),
+            user_id: "u1".into(),
+            access_token: "tok".into(),
+        },
+        dir.to_str().unwrap(),
+        ClientIdentity::new("Playfin", "LG webOS"),
+    );
+    assert!(
+        restored
+            .auth_header()
+            .contains(r#"Client="Playfin", Device="LG webOS""#)
+    );
+    assert!(restored.auth_header().contains(r#"Token="tok""#));
     let _ = std::fs::remove_dir_all(dir);
 }
 

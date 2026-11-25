@@ -45,15 +45,26 @@ const DEVICE_ID_FILE: &str = "device_id";
 const MIN_DISCOVERY_TIMEOUT_MS: u64 = 250;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[cfg(not(any(feature = "aws-lc-tls", feature = "ring-tls")))]
+compile_error!("playfin_core requires a TLS backend: enable `aws-lc-tls` (default) or `ring-tls`");
+
 #[cfg(feature = "bundled-roots")]
 pub(crate) fn bundled_root_certs() -> &'static [reqwest::Certificate] {
     static BUNDLED_CERTS: std::sync::OnceLock<Vec<reqwest::Certificate>> =
         std::sync::OnceLock::new();
     BUNDLED_CERTS.get_or_init(|| {
-        webpki_root_certs::TLS_SERVER_ROOT_CERTS
-            .iter()
-            .filter_map(|der| reqwest::Certificate::from_der(der.as_ref()).ok())
-            .collect()
+        let mut certs = Vec::with_capacity(webpki_root_certs::TLS_SERVER_ROOT_CERTS.len());
+        let mut dropped = 0usize;
+        for der in webpki_root_certs::TLS_SERVER_ROOT_CERTS {
+            match reqwest::Certificate::from_der(der.as_ref()) {
+                Ok(cert) => certs.push(cert),
+                Err(_) => dropped += 1,
+            }
+        }
+        if dropped > 0 {
+            log::warn!("dropped {dropped} unparseable bundled root certificate(s)");
+        }
+        certs
     })
 }
 

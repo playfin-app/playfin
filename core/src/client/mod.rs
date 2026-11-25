@@ -29,13 +29,13 @@ impl Default for ClientIdentity {
 }
 
 impl ClientIdentity {
-    /// Builds a sanitized identity, stripping quotes and control characters so the
-    /// MediaBrowser Authorization header remains well-formed.
+    /// Builds a sanitized ASCII identity, stripping quotes, backslashes, and non-ASCII/control
+    /// characters so the HTTP MediaBrowser Authorization header remains valid.
     pub fn new(client: impl Into<String>, device: impl Into<String>) -> Self {
         let clean = |raw: String, fallback: &str| -> String {
             let s: String = raw
                 .chars()
-                .filter(|c| !c.is_control() && *c != '"')
+                .filter(|c| c.is_ascii() && !c.is_ascii_control() && *c != '"' && *c != '\\')
                 .collect();
             let trimmed = s.trim();
             if trimmed.is_empty() {
@@ -50,10 +50,12 @@ impl ClientIdentity {
         }
     }
 
+    /// Returns the sanitized application name sent in `Client="..."`.
     pub fn client(&self) -> &str {
         &self.client
     }
 
+    /// Returns the sanitized device label sent in `Device="..."`.
     pub fn device(&self) -> &str {
         &self.device
     }
@@ -202,11 +204,13 @@ impl JellyfinClient {
 
 // Rust-only identity constructors (keeps Swift UniFFI signatures unchanged).
 impl JellyfinClient {
+    /// Creates an unauthenticated client using a custom `ClientIdentity`.
     pub fn new_with_identity(server_url: &str, cache_dir: &str, identity: ClientIdentity) -> Self {
         let device_id = load_or_create_device_id(Path::new(cache_dir));
         Self::build(server_url, cache_dir, device_id, identity)
     }
 
+    /// Recreates a signed-in client from a saved session using a custom `ClientIdentity`.
     pub fn restore_with_identity(
         info: SessionInfo,
         cache_dir: &str,

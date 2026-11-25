@@ -29,13 +29,13 @@ Target hardware: **LG C1 (webOS 6.x)** in **non-root LG Developer Mode** (no roo
 - [x] Add opt-in `bundled-roots` (`webpki-roots` + `reqwest 0.13` `ClientConfig`) and `ring-tls` features in `core/Cargo.toml` (macOS defaults unchanged).
 
 ### Task 0.3b — webOS NDK Cross-Compile, CI `.ipk` & TV Gate 1 (`review: self`)
-- Add Dockerfile (`webosbrew/meta-lg-webos-ndk`) targeting `armv7-unknown-linux-gnueabihf` + `appinfo.json` (`"type": "native"`) + `.ipk` packaging (`ares-package`), respecting non-root `jailer` linking (`libSDL2` system vs bundled ABI compatibility).
-- Verify whether `core`'s `crate-type = ["lib", "staticlib", "cdylib"]` causes armv7 cross-link friction.
-- Add `.github/workflows/webos.yml` (`paths: webos/**, core/**`) running host `fmt`/`clippy --all-targets`/`test` (`libsdl2-dev`) + NDK `.ipk` build (failing hard if NDK or `ares-package` is missing).
-- **TV Gate 1 (Non-root Developer Mode on LG C1 — recorded log/photo + FPS):**
+- [x] Add Dockerfile (`openlgtv/buildroot-nc4` `2026.08-webos` SDK with `SDL2_WEBOS`) targeting `armv7-unknown-linux-gnueabi` (`softfp`) + `appinfo.json` (`"type": "native"`) + `.ipk` packaging (`ares-package`) bundling `libSDL2*.so` (`$ORIGIN/lib` rpath).
+- [x] Configure `webos/build.rs` and `scripts/package-webos-ipk.sh` (`readelf -d` check; verify armv7 cross-link in CI).
+- [x] Add `.github/workflows/webos.yml` (`paths: webos/**, core/**`) running host `fmt`/`clippy --all-targets`/`test` (`libsdl2-dev`) + NDK `.ipk` build (failing hard if NDK or `ares-package` is missing).
+- [ ] **TV Gate 1 (Non-root Developer Mode on LG C1 — recorded log/photo + FPS):**
   1. Binary links `playfin_core` and performs a real HTTPS request inside `jailer`.
   2. Logs `$HOME` / XDG paths inside `jailer`, calls `load_or_create_device_id` into the persistent data dir (NOT install dir `/media/developer/apps/...`), **reinstalls `.ipk`**, and proves `device_id` survives.
-  3. Renders `femtovg` (stencil 8, alpha 8, ES profile) at 60 fps, handles `argv[1]` JSON, and logs Magic Remote + D-pad input.
+  3. Renders `femtovg` (stencil 8, alpha 8, `SDL_GL_CONTEXT_PROFILE_MASK = SDL_GL_CONTEXT_PROFILE_ES`) at 60 fps, handles `argv[1]` JSON, and logs Magic Remote + D-pad input.
 
 ### Task 0.4 — Starfish (`libplayerAPIs`) Playback Spike & Go/No-Go Gate (`review: sonnet`, unsafe FFI)
 - Minimal `webos/native/starfish_shim.cpp` (`extern "C"`) + Rust test harness running under non-root `native_devmode` `jailer`.

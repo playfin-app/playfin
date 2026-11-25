@@ -752,6 +752,7 @@ fn custom_client_identity_sanitizes_and_sets_auth_header() {
         c.auth_header()
             .contains(r#"Client="Playfin", Device="LG webOS""#)
     );
+    assert!(!c.device_id().is_empty());
 
     let restored = JellyfinClient::restore_with_identity(
         SessionInfo {

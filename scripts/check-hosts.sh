@@ -89,6 +89,7 @@ ALLOWED_EXACT_DOMAINS = {
     "developer.apple.com",
     "crates.io",
     "rust-lang.org",
+    "sh.rustup.rs",
     "jellyfin.org",
     "repo.jellyfin.org",
     "w3.org",

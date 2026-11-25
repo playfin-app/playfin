@@ -97,6 +97,16 @@ pub fn core_version() -> String {
     VERSION.to_string()
 }
 
+/// Performs a lightweight HTTPS GET using the configured TLS backend and root store.
+pub async fn probe_https_status(url: &str) -> Result<u16, JellyfinError> {
+    let client = http_client_builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| JellyfinError::Network(e.to_string()))?;
+    let response = client.get(url).send().await?;
+    Ok(response.status().as_u16())
+}
+
 /// Discovers local Jellyfin servers via UDP broadcast (port 7359).
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn discover_servers(timeout_ms: u64) -> Result<Vec<DiscoveredServer>, JellyfinError> {

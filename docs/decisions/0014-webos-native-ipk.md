@@ -9,7 +9,7 @@ Playfin targets LG webOS as its second platform after macOS (`docs/decisions/000
 ## Decision
 
 1. **Native `.ipk` via Non-Root LG Developer Mode (and Unrooted Homebrew Channel):**
-   - Package `webos/` as a standalone native webOS application (`"type": "native"` in `appinfo.json`) built as an `.ipk` for `armv7-unknown-linux-gnueabihf`.
+   - Package `webos/` as a standalone native webOS application (`"type": "native"` in `appinfo.json`) built as an `.ipk` for `armv7-unknown-linux-gnueabi` (`softfp` EABI, matching `openlgtv/buildroot-nc4` `webos_tv_defconfig`).
    - The app **must run 100% without root** under webOS's `native_devmode` `jailer` sandbox (installed via `ares-install` / webOS Dev Manager, subject to LG's Developer Mode session renewal). Users with the Homebrew Channel installed (also possible without root via Dev Mode) can install the same `.ipk`.
    - **Trade-off:** Official LG Content Store distribution only accepts Web apps and is excluded by this path.
 

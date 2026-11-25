@@ -2,6 +2,18 @@ use std::path::Path;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=WEBOS_SYSROOT");
+
+    // Cross-compile builds for LG webOS link against the Buildroot sysroot and resolve
+    // bundled shared libraries (e.g. libSDL2) from ./lib next to the binary.
+    if let Ok(sysroot) = std::env::var("WEBOS_SYSROOT")
+        && !sysroot.is_empty()
+    {
+        println!("cargo:rustc-link-search=native={sysroot}/usr/lib");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/lib");
+        println!("cargo:rustc-link-arg=-Wl,--enable-new-dtags");
+        return;
+    }
 
     // Help desktop simulator builds on Apple Silicon macOS find Homebrew's SDL2
     // without requiring callers to set LIBRARY_PATH manually.

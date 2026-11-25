@@ -1,0 +1,102 @@
+name: webOS CI
+
+on:
+  push:
+    branches: [ main, dev, feat/webos ]
+    paths:
+      - "webos/**"
+      - "core/**"
+      - "scripts/test-webos.sh"
+      - "scripts/package-webos-ipk.sh"
+      - "scripts/check-hosts.sh"
+      - ".github/workflows/webos.yml"
+  pull_request:
+    branches: [ main, dev ]
+    paths:
+      - "webos/**"
+      - "core/**"
+      - "scripts/test-webos.sh"
+      - "scripts/package-webos-ipk.sh"
+      - "scripts/check-hosts.sh"
+      - ".github/workflows/webos.yml"
+  workflow_dispatch:
+
+jobs:
+  host-checks:
+    name: Host Checks (Linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Install host SDL2 dev libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libsdl2-dev
+
+      - name: Run webOS host checks
+        run: ./scripts/test-webos.sh
+
+      - name: Run core tests with ring-tls + bundled-roots
+        run: |
+          cd core
+          cargo clippy --all-targets --no-default-features --features ring-tls,bundled-roots -- -D warnings
+          cargo test --no-default-features --features ring-tls,bundled-roots
+
+  build-ipk:
+    name: Build webOS IPK (armv7)
+    runs-on: ubuntu-latest
+    env:
+      WEBOS_SDK_TAG: "2026.08-webos"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7-unknown-linux-gnueabi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install @webos-tools/cli (ares-package)
+        run: npm install -g @webos-tools/cli
+
+      - name: Cache openlgtv/buildroot-nc4 SDK
+        id: cache-sdk
+        uses: actions/cache@v4
+        with:
+          path: ~/webos-sdk-cache
+          key: webos-sdk-${{ env.WEBOS_SDK_TAG }}-x86_64
+
+      - name: Download webOS SDK
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/webos-sdk-cache
+          curl -fsSL --retry 3 -o ~/webos-sdk-cache/sdk.tar.gz \
+            "https://github.com/openlgtv/buildroot-nc4/releases/download/${WEBOS_SDK_TAG}/arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz"
+
+      - name: Extract and relocate webOS SDK
+        run: |
+          mkdir -p "$RUNNER_TEMP/webos-sdk"
+          tar -xzf ~/webos-sdk-cache/sdk.tar.gz --strip-components=1 -C "$RUNNER_TEMP/webos-sdk"
+          cd "$RUNNER_TEMP/webos-sdk" && ./relocate-sdk.sh
+          echo "WEBOS_SDK=$RUNNER_TEMP/webos-sdk" >> "$GITHUB_ENV"
+
+      - name: Build and package .ipk
+        run: ./scripts/package-webos-ipk.sh
+
+      - name: Upload .ipk artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: playfin-webos-ipk
+          path: build/webos/*.ipk

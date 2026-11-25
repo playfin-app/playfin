@@ -222,6 +222,11 @@ impl JellyfinClient {
         *client.lock_session() = Some(info);
         client
     }
+
+    /// Returns the persistent per-installation device identifier sent to Jellyfin.
+    pub fn device_id(&self) -> &str {
+        &self.device_id
+    }
 }
 
 // Session: construction, addresses, sign-in, Quick Connect, sign-out.

@@ -1,0 +1,13 @@
+{
+  "id": "com.playfin.webos",
+  "version": "0.1.0",
+  "vendor": "Playfin",
+  "type": "native",
+  "main": "playfin_webos",
+  "title": "Playfin",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true,
+  "supportMouseAndWheel": true
+}

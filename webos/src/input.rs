@@ -22,8 +22,12 @@ pub fn map_keycode(keycode: Keycode) -> Option<NavAction> {
         Keycode::Right | Keycode::D => Some(NavAction::MoveRight),
         Keycode::Up | Keycode::W => Some(NavAction::MoveUp),
         Keycode::Down | Keycode::S => Some(NavAction::MoveDown),
-        Keycode::Return | Keycode::KpEnter | Keycode::Space => Some(NavAction::Select),
-        Keycode::Escape | Keycode::Backspace | Keycode::AcBack => Some(NavAction::Back),
+        Keycode::Return | Keycode::KpEnter | Keycode::Space | Keycode::Select => {
+            Some(NavAction::Select)
+        }
+        Keycode::Escape | Keycode::Backspace | Keycode::AcBack | Keycode::Cancel => {
+            Some(NavAction::Back)
+        }
         Keycode::T => Some(NavAction::TogglePunchThrough),
         Keycode::Q => Some(NavAction::Quit),
         _ => None,

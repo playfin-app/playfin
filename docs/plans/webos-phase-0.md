@@ -19,10 +19,10 @@ Target hardware: **LG C1 (webOS 6.x)** in **non-root LG Developer Mode** (no roo
 - [x] Update `.gitignore` (`webos/target/`, `*.ipk`, `webos_rsa*`) and `scripts/check-hosts.sh` (`webosbrew.org`, `webostv.developer.lge.com`).
 
 ### Task 0.2 — Standalone `webos/` Crate, Lints & macOS Simulator Skeleton (`review: self`)
-- Create standalone `webos/Cargo.toml` (`playfin_core = { path = "../core" }`), `webos/clippy.toml`, and `#![deny(clippy::unwrap_used, clippy::expect_used)]`.
-- Link system `sdl2` (NO `bundled` feature) + `glow` + `femtovg` + bundled OFL font.
-- Configure GL attributes (`SDL_GL_ALPHA_SIZE=8`, `SDL_GL_STENCIL_SIZE=8`, `SDL_GL_CONTEXT_PROFILE_MASK = SDL_GL_CONTEXT_PROFILE_ES` on webOS, desktop GL on simulator) and `glClearColor(0.0, 0.0, 0.0, 0.0)`.
-- Create `scripts/test-webos.sh` (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`) and verify `./scripts/test-all.sh` passes unchanged.
+- [x] Create standalone `webos/Cargo.toml` (`playfin_core = { path = "../core" }`), `webos/clippy.toml`, and `#![deny(clippy::unwrap_used, clippy::expect_used)]`.
+- [x] Link system `sdl2` (NO `bundled` feature) + `glow` + `femtovg` + bundled OFL font.
+- [x] Configure GL attributes (`SDL_GL_ALPHA_SIZE=8`, `SDL_GL_STENCIL_SIZE=8`, `SDL_GL_CONTEXT_PROFILE_MASK = SDL_GL_CONTEXT_PROFILE_ES` on webOS, desktop GL on simulator) and `glClearColor(0.0, 0.0, 0.0, 0.0)`.
+- [x] Create `scripts/test-webos.sh` (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`) and verify `./scripts/test-all.sh` passes unchanged.
 
 ### Task 0.3a — `core/` `ClientIdentity` & Opt-In TLS Features (`review: sonnet`)
 - Add `JellyfinClient::new_with_identity` / `restore_with_identity` (keeping `new()`/`restore()` Mac behavior intact, verified by tests). Merge `ClientIdentity` to `dev` early.

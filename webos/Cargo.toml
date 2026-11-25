@@ -1,0 +1,20 @@
+[package]
+name = "playfin_webos"
+version = "0.1.0"
+edition = "2024"
+license = "MPL-2.0"
+
+[features]
+default = []
+webos = []
+
+[dependencies]
+femtovg = "0.28"
+glow = "0.18"
+playfin_core = { path = "../core" }
+sdl2 = { version = "0.39", default-features = false }
+thiserror = "2.0.21"
+
+[profile.release]
+lto = true
+panic = "abort"

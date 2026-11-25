@@ -213,7 +213,7 @@ impl DownloadManager {
         let settings = settings.sanitized();
         // Client dedicated to downloads: no total timeout (a movie takes minutes), but a connect
         // and read timeout to detect a drop.
-        let http = reqwest::Client::builder()
+        let http = crate::http_client_builder()
             .connect_timeout(Duration::from_secs(5))
             .read_timeout(Duration::from_secs(30))
             .build()

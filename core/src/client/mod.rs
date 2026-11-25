@@ -12,6 +12,53 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
+/// Client application and device identity sent in the Jellyfin Authorization header.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientIdentity {
+    client: String,
+    device: String,
+}
+
+impl Default for ClientIdentity {
+    fn default() -> Self {
+        Self {
+            client: CLIENT.to_string(),
+            device: DEVICE.to_string(),
+        }
+    }
+}
+
+impl ClientIdentity {
+    /// Builds a sanitized identity, stripping quotes and control characters so the
+    /// MediaBrowser Authorization header remains well-formed.
+    pub fn new(client: impl Into<String>, device: impl Into<String>) -> Self {
+        let clean = |raw: String, fallback: &str| -> String {
+            let s: String = raw
+                .chars()
+                .filter(|c| !c.is_control() && *c != '"')
+                .collect();
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                fallback.to_string()
+            } else {
+                trimmed.to_string()
+            }
+        };
+        Self {
+            client: clean(client.into(), CLIENT),
+            device: clean(device.into(), DEVICE),
+        }
+    }
+
+    pub fn client(&self) -> &str {
+        &self.client
+    }
+
+    pub fn device(&self) -> &str {
+        &self.device
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct JellyfinClient {
     /// `Err` if the HTTP client could not be built: every request then fails cleanly.
@@ -23,6 +70,8 @@ pub struct JellyfinClient {
     session: Mutex<Option<SessionInfo>>,
     /// Unique identifier of this installation, sent to the server in the authentication header.
     device_id: String,
+    /// Client/device labels included in the MediaBrowser Authorization header.
+    identity: ClientIdentity,
     /// Cached open SQLite store for the active profile, avoiding reopening and schema checks on every access (P11).
     profile_store: Mutex<Option<(PathBuf, store::ProfileStore)>>,
 }
@@ -113,10 +162,16 @@ impl JellyfinClient {
             .map_err(|e| JellyfinError::Network(format!("HTTP client unavailable: {e}")))
     }
 
-    fn build(server_url: &str, cache_dir: &str, device_id: String) -> Self {
+    fn build(
+        server_url: &str,
+        cache_dir: &str,
+        device_id: String,
+        identity: ClientIdentity,
+    ) -> Self {
         Self {
             device_id,
-            http: reqwest::Client::builder()
+            identity,
+            http: crate::http_client_builder()
                 .connect_timeout(Duration::from_secs(3))
                 .timeout(Duration::from_secs(20))
                 .build()
@@ -127,6 +182,42 @@ impl JellyfinClient {
             profile_store: Mutex::new(None),
         }
     }
+
+    /// Formats the Jellyfin `MediaBrowser` authorization header for a given identity and optional token.
+    fn format_media_browser_header(
+        identity: &ClientIdentity,
+        device_id: &str,
+        token: Option<&str>,
+    ) -> String {
+        let mut header = format!(
+            r#"MediaBrowser Client="{}", Device="{}", DeviceId="{device_id}", Version="{VERSION}""#,
+            identity.client, identity.device
+        );
+        if let Some(token) = token {
+            header.push_str(&format!(r#", Token="{token}""#));
+        }
+        header
+    }
+}
+
+// Rust-only identity constructors (keeps Swift UniFFI signatures unchanged).
+impl JellyfinClient {
+    pub fn new_with_identity(server_url: &str, cache_dir: &str, identity: ClientIdentity) -> Self {
+        let device_id = load_or_create_device_id(Path::new(cache_dir));
+        Self::build(server_url, cache_dir, device_id, identity)
+    }
+
+    pub fn restore_with_identity(
+        info: SessionInfo,
+        cache_dir: &str,
+        identity: ClientIdentity,
+    ) -> Self {
+        let device_id =
+            read_device_id(Path::new(cache_dir)).unwrap_or_else(|| LEGACY_DEVICE_ID.to_string());
+        let client = Self::build(&info.server_url, cache_dir, device_id, identity);
+        *client.lock_session() = Some(info);
+        client
+    }
 }
 
 // Session: construction, addresses, sign-in, Quick Connect, sign-out.
@@ -134,19 +225,13 @@ impl JellyfinClient {
 impl JellyfinClient {
     #[uniffi::constructor]
     pub fn new(server_url: &str, cache_dir: &str) -> Self {
-        let device_id = load_or_create_device_id(Path::new(cache_dir));
-        Self::build(server_url, cache_dir, device_id)
+        Self::new_with_identity(server_url, cache_dir, ClientIdentity::default())
     }
 
     /// Recreates a signed-in client from a saved session.
     #[uniffi::constructor]
     pub fn restore(info: SessionInfo, cache_dir: &str) -> Self {
-        // A session created before the per-installation identifier keeps the old one until the next sign-in.
-        let device_id =
-            read_device_id(Path::new(cache_dir)).unwrap_or_else(|| LEGACY_DEVICE_ID.to_string());
-        let client = Self::build(&info.server_url, cache_dir, device_id);
-        *client.lock_session() = Some(info);
-        client
+        Self::restore_with_identity(info, cache_dir, ClientIdentity::default())
     }
 
     /// Current session, to be saved to stay signed in.
@@ -230,10 +315,8 @@ impl JellyfinClient {
 
     /// Closes the session of a token we do not keep. No visible effect if the server does not answer.
     async fn revoke_token_best_effort(&self, url: &str, access_token: &str) {
-        let device_id = &self.device_id;
-        let header = format!(
-            r#"MediaBrowser Client="{CLIENT}", Device="{DEVICE}", DeviceId="{device_id}", Version="{VERSION}", Token="{access_token}""#
-        );
+        let header =
+            Self::format_media_browser_header(&self.identity, &self.device_id, Some(access_token));
         let Ok(http) = self.http() else { return };
         let _ = http
             .post(format!("{url}/Sessions/Logout"))
@@ -468,14 +551,9 @@ impl JellyfinClient {
 
     /// Authentication header expected by Jellyfin.
     pub(crate) fn auth_header(&self) -> String {
-        let device_id = &self.device_id;
-        let mut header = format!(
-            r#"MediaBrowser Client="{CLIENT}", Device="{DEVICE}", DeviceId="{device_id}", Version="{VERSION}""#
-        );
-        if let Some(session) = self.lock_session().as_ref() {
-            header.push_str(&format!(r#", Token="{}""#, session.access_token));
-        }
-        header
+        let session = self.lock_session();
+        let token = session.as_ref().map(|s| s.access_token.as_str());
+        Self::format_media_browser_header(&self.identity, &self.device_id, token)
     }
 
     /// Sends a request with the authentication header and checks the response.

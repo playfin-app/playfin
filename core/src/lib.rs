@@ -45,6 +45,41 @@ const DEVICE_ID_FILE: &str = "device_id";
 const MIN_DISCOVERY_TIMEOUT_MS: u64 = 250;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[cfg(feature = "bundled-roots")]
+pub(crate) fn bundled_root_certs() -> &'static [reqwest::Certificate] {
+    static BUNDLED_CERTS: std::sync::OnceLock<Vec<reqwest::Certificate>> =
+        std::sync::OnceLock::new();
+    BUNDLED_CERTS.get_or_init(|| {
+        webpki_root_certs::TLS_SERVER_ROOT_CERTS
+            .iter()
+            .filter_map(|der| reqwest::Certificate::from_der(der.as_ref()).ok())
+            .collect()
+    })
+}
+
+/// Creates a `reqwest::ClientBuilder` configured with the active TLS provider and root store.
+pub(crate) fn http_client_builder() -> reqwest::ClientBuilder {
+    #[cfg(all(feature = "ring-tls", not(feature = "aws-lc-tls")))]
+    {
+        static RING_INIT: std::sync::Once = std::sync::Once::new();
+        RING_INIT.call_once(|| {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+        });
+    }
+
+    let builder = reqwest::Client::builder();
+
+    #[cfg(feature = "bundled-roots")]
+    {
+        let certs = bundled_root_certs();
+        builder.tls_certs_only(certs.iter().cloned())
+    }
+    #[cfg(not(feature = "bundled-roots"))]
+    {
+        builder
+    }
+}
+
 /// Current version of the Rust core.
 #[uniffi::export]
 pub fn core_version() -> String {

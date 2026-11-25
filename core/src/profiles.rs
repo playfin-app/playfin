@@ -160,7 +160,7 @@ pub fn probe_http_client() -> Result<&'static reqwest::Client, JellyfinError> {
     if let Some(client) = PROBE_CLIENT.get() {
         return Ok(client);
     }
-    let client = reqwest::Client::builder()
+    let client = crate::http_client_builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_millis(3000))
         .build()

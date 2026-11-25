@@ -96,6 +96,7 @@ ALLOWED_EXACT_DOMAINS = {
     "spdx.org",
     "gnu.org",
     "mozilla.org",
+    "scripts.sil.org",
     "git-scm.com",
     "conventionalcommits.org",
     "www.conventionalcommits.org",

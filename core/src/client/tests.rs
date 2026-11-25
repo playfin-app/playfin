@@ -722,3 +722,47 @@ fn favorite_flag_parses_and_defaults_to_false() {
     // Old cache, written before the favourites: no required field.
     assert!(!movie().user_data.unwrap().is_favorite);
 }
+
+#[test]
+fn default_client_identity_keeps_mac_auth_header() {
+    let dir = std::env::temp_dir().join(format!("playfin-id-mac-{}", uuid::Uuid::new_v4()));
+    let c = JellyfinClient::new("http://localhost:8096", dir.to_str().unwrap());
+    let header = c.auth_header();
+    assert!(header.contains(r#"Client="Playfin", Device="Mac""#));
+    assert!(header.contains(&format!(r#"Version="{VERSION}""#)));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn custom_client_identity_sanitizes_and_sets_auth_header() {
+    let dir = std::env::temp_dir().join(format!("playfin-id-webos-{}", uuid::Uuid::new_v4()));
+    let identity = ClientIdentity::new("Playfin\n\"\"", "  LG \"webOS\" \r\n");
+    assert_eq!(identity.client(), "Playfin");
+    assert_eq!(identity.device(), "LG webOS");
+
+    let empty = ClientIdentity::new(" \"\" ", "\n\t");
+    assert_eq!(empty, ClientIdentity::default());
+
+    let c = JellyfinClient::new_with_identity(
+        "http://localhost:8096",
+        dir.to_str().unwrap(),
+        ClientIdentity::new("Playfin", "LG webOS"),
+    );
+    assert!(
+        c.auth_header()
+            .contains(r#"Client="Playfin", Device="LG webOS""#)
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn http_client_builder_builds_under_active_tls_features() {
+    let client = crate::http_client_builder().build();
+    assert!(client.is_ok());
+
+    #[cfg(feature = "bundled-roots")]
+    assert_eq!(
+        crate::bundled_root_certs().len(),
+        webpki_root_certs::TLS_SERVER_ROOT_CERTS.len()
+    );
+}

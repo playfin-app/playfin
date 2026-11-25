@@ -25,8 +25,8 @@ Target hardware: **LG C1 (webOS 6.x)** in **non-root LG Developer Mode** (no roo
 - [x] Create `scripts/test-webos.sh` (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`) and verify `./scripts/test-all.sh` passes unchanged.
 
 ### Task 0.3a — `core/` `ClientIdentity` & Opt-In TLS Features (`review: sonnet`)
-- Add `JellyfinClient::new_with_identity` / `restore_with_identity` (keeping `new()`/`restore()` Mac behavior intact, verified by tests). Merge `ClientIdentity` to `dev` early.
-- Add opt-in `bundled-roots` (`webpki-roots` + `reqwest 0.13` `ClientConfig`) and `ring-tls` features in `core/Cargo.toml` (macOS defaults unchanged).
+- [x] Add `JellyfinClient::new_with_identity` / `restore_with_identity` (preserving `new()`/`restore()` Mac behavior with tests). Merge `ClientIdentity` to `dev` early.
+- [x] Add opt-in `bundled-roots` (`webpki-roots` + `reqwest 0.13` `ClientConfig`) and `ring-tls` features in `core/Cargo.toml` (macOS defaults unchanged).
 
 ### Task 0.3b — webOS NDK Cross-Compile, CI `.ipk` & TV Gate 1 (`review: self`)
 - Add Dockerfile (`webosbrew/meta-lg-webos-ndk`) targeting `armv7-unknown-linux-gnueabihf` + `appinfo.json` (`"type": "native"`) + `.ipk` packaging (`ares-package`), respecting non-root `jailer` linking (`libSDL2` system vs bundled ABI compatibility).

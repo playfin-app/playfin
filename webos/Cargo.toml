@@ -6,7 +6,7 @@ license = "MPL-2.0"
 
 [features]
 default = []
-webos = []
+webos = ["sdl2/use-bindgen"]
 
 [dependencies]
 femtovg = "0.28"

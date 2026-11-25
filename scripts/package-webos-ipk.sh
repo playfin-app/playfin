@@ -26,10 +26,21 @@ fi
 
 export PATH="$WEBOS_SDK/bin:$PATH"
 export WEBOS_SYSROOT="$SYSROOT"
+export SDL2_INCLUDE_PATH="$SYSROOT/usr/include/SDL2"
+export BINDGEN_EXTRA_CLANG_ARGS_armv7_unknown_linux_gnueabi="--sysroot=$SYSROOT -mfloat-abi=softfp"
 export CC_armv7_unknown_linux_gnueabi="$WEBOS_SDK/bin/arm-webos-linux-gnueabi-gcc"
 export CXX_armv7_unknown_linux_gnueabi="$WEBOS_SDK/bin/arm-webos-linux-gnueabi-g++"
 export AR_armv7_unknown_linux_gnueabi="$WEBOS_SDK/bin/arm-webos-linux-gnueabi-ar"
 export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABI_LINKER="$WEBOS_SDK/bin/arm-webos-linux-gnueabi-gcc"
+
+if [[ -z "${LIBCLANG_PATH:-}" ]]; then
+    for candidate in /usr/lib/llvm-*/lib /usr/lib/x86_64-linux-gnu; do
+        if [[ -e "$candidate/libclang.so" || -e "$candidate/libclang.so.1" ]]; then
+            export LIBCLANG_PATH="$candidate"
+            break
+        fi
+    done
+fi
 
 echo "▶ Building playfin_webos for armv7-unknown-linux-gnueabi (--features webos)"
 cargo build \
@@ -44,8 +55,9 @@ if [[ ! -f "$BIN" ]]; then
     exit 1
 fi
 
-echo "▶ Verifying dynamic dependencies and rpath"
+echo "▶ Verifying dynamic dependencies, glibc versions, and rpath"
 "$WEBOS_SDK/bin/arm-webos-linux-gnueabi-readelf" -d "$BIN" | grep -E "NEEDED|RPATH|RUNPATH" || true
+"$WEBOS_SDK/bin/arm-webos-linux-gnueabi-readelf" -V "$BIN" | grep -E "Name: GLIBC" | sort -u || true
 "$WEBOS_SDK/bin/arm-webos-linux-gnueabi-readelf" -d "$SYSROOT"/usr/lib/libSDL2-2.0.so* | grep -E "NEEDED|SONAME" || true
 
 rm -rf "$STAGE_DIR"

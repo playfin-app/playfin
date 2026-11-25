@@ -68,8 +68,11 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install @webos-tools/cli (ares-package)
-        run: npm install -g @webos-tools/cli
+      - name: Install @webos-tools/cli and libclang for bindgen
+        run: |
+          npm install -g @webos-tools/cli
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang libclang-dev
 
       - name: Cache openlgtv/buildroot-nc4 SDK
         id: cache-sdk

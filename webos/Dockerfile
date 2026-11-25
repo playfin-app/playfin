@@ -5,10 +5,12 @@ ARG WEBOS_SDK_TAG=2026.08-webos
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    clang \
     curl \
     file \
     git \
     build-essential \
+    libclang-dev \
     nodejs \
     npm \
     xz-utils \

@@ -86,6 +86,9 @@ fn run() -> Result<(), WebosError> {
     let diagnostics = build_initial_diagnostics();
     let (_rt, https_rx) = spawn_https_probe()?;
 
+    #[cfg(feature = "webos")]
+    sdl2::hint::set("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true");
+
     let sdl = sdl2::init().map_err(WebosError::Sdl)?;
     let video = sdl.video().map_err(WebosError::Sdl)?;
 
@@ -144,15 +147,15 @@ fn run() -> Result<(), WebosError> {
             match event {
                 Event::Quit { .. } => break 'running,
                 Event::KeyDown {
-                    keycode: Some(code),
-                    ..
+                    keycode, scancode, ..
                 } => {
-                    if let Some(action) = map_keycode(code) {
+                    if let Some(action) = keycode.and_then(map_keycode) {
                         if !app.handle_action(action) {
                             break 'running;
                         }
                     } else {
-                        app.diagnostics.last_input = format!("RawKey: {code:?}");
+                        app.diagnostics.last_input =
+                            format!("RawKey: {keycode:?} scancode={scancode:?}");
                     }
                 }
                 Event::MouseMotion { x, y, .. } => app.record_pointer("Pointer", x, y),

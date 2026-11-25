@@ -99,13 +99,15 @@ ALLOWED_EXACT_DOMAINS = {
     "git-scm.com",
     "conventionalcommits.org",
     "www.conventionalcommits.org",
+    "webosbrew.org",
+    "webostv.developer.lge.com",
 }
 
 BINARY_EXTENSIONS = (
     ".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf",
     ".zip", ".tar", ".gz", ".bz2", ".xz",
     ".dylib", ".a", ".o", ".so", ".xcframework",
-    ".bundle", ".DS_Store"
+    ".bundle", ".DS_Store", ".ttf", ".otf", ".ipk"
 )
 
 # Match IPv4 addresses

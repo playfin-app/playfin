@@ -1083,7 +1083,7 @@ dependencies = [
  "femtovg",
  "glow",
  "playfin_core",
- "sdl2",
+ "sdl2-sys",
  "thiserror",
  "tokio",
 ]
@@ -1448,17 +1448,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "sdl2"
-version = "0.39.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5208e9a3c291d04897dbbef21bd94b72aec777fa85387980329affa1aa50007"
-dependencies = [
- "bitflags",
- "libc",
- "sdl2-sys",
 ]
 
 [[package]]

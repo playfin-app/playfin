@@ -5,12 +5,10 @@ use femtovg::Canvas;
 use femtovg::renderer::OpenGl;
 use playfin_core::{ClientIdentity, JellyfinClient, probe_https_status};
 use playfin_webos::app::{Gate1Diagnostics, SimulatorApp};
-use playfin_webos::gl_config::{GlSurfaceSpec, apply_sdl_gl_attributes, clear_transparent};
-use playfin_webos::input::map_keycode;
+use playfin_webos::gl_config::{GlSurfaceSpec, clear_transparent};
+use playfin_webos::input::map_key_input;
 use playfin_webos::platform::{LaunchContext, resolve_persistent_data_dir};
-use sdl2::event::Event;
-use sdl2::video::SwapInterval;
-use std::ffi::c_void;
+use playfin_webos::sdl::{SdlContext, SdlEvent, set_hint};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -86,34 +84,27 @@ fn run() -> Result<(), WebosError> {
     let diagnostics = build_initial_diagnostics();
     let (_rt, https_rx) = spawn_https_probe()?;
 
-    #[cfg(feature = "webos")]
-    sdl2::hint::set("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true");
+    if cfg!(feature = "webos") {
+        set_hint("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true");
+    }
 
-    let sdl = sdl2::init().map_err(WebosError::Sdl)?;
-    let video = sdl.video().map_err(WebosError::Sdl)?;
-
+    let sdl = SdlContext::init_video().map_err(WebosError::Sdl)?;
     let gl_spec = GlSurfaceSpec::default();
-    apply_sdl_gl_attributes(&video.gl_attr(), &gl_spec);
-
-    let window = video
-        .window("Playfin webOS Simulator", 1280, 720)
-        .position_centered()
-        .resizable()
-        .opengl()
-        .allow_highdpi()
-        .build()
-        .map_err(|e| WebosError::Sdl(e.to_string()))?;
-
-    let _gl_ctx = window.gl_create_context().map_err(WebosError::Sdl)?;
-    let _ = video.gl_set_swap_interval(SwapInterval::VSync);
+    let (init_w, init_h) = if cfg!(feature = "webos") {
+        (1920, 1080)
+    } else {
+        (1280, 720)
+    };
+    let window = sdl
+        .create_gl_window("Playfin webOS", init_w, init_h, &gl_spec)
+        .map_err(WebosError::Sdl)?;
+    window.set_vsync(true);
 
     // SAFETY: GL context is current on this thread and remains live for the duration of the loop.
-    let gl = unsafe {
-        glow::Context::from_loader_function(|s| video.gl_get_proc_address(s) as *const c_void)
-    };
+    let gl = unsafe { glow::Context::from_loader_function(|s| window.gl_get_proc_address(s)) };
     // SAFETY: GL context is current on this thread.
     let renderer = unsafe {
-        OpenGl::new_from_function(|s| video.gl_get_proc_address(s) as *const c_void)
+        OpenGl::new_from_function(|s| window.gl_get_proc_address(s))
             .map_err(|e| WebosError::Renderer(e.to_string()))?
     };
 
@@ -122,7 +113,6 @@ fn run() -> Result<(), WebosError> {
         .add_font_mem(DEFAULT_FONT)
         .map_err(|e| WebosError::Font(e.to_string()))?;
 
-    let mut event_pump = sdl.event_pump().map_err(WebosError::Sdl)?;
     let mut app = SimulatorApp::new(playfin_core::core_version(), diagnostics);
     let mut last_frame = Instant::now();
     let mut fps_window_start = Instant::now();
@@ -143,24 +133,21 @@ fn run() -> Result<(), WebosError> {
             app.diagnostics.https_status = https_result;
         }
 
-        for event in event_pump.poll_iter() {
+        while let Some(event) = sdl.poll_event() {
             match event {
-                Event::Quit { .. } => break 'running,
-                Event::KeyDown {
-                    keycode, scancode, ..
-                } => {
-                    if let Some(action) = keycode.and_then(map_keycode) {
+                SdlEvent::Quit => break 'running,
+                SdlEvent::KeyDown { keycode, scancode } => {
+                    if let Some(action) = map_key_input(keycode, scancode) {
                         if !app.handle_action(action) {
                             break 'running;
                         }
                     } else {
                         app.diagnostics.last_input =
-                            format!("RawKey: {keycode:?} scancode={scancode:?}");
+                            format!("RawKey: sym={keycode} scancode={scancode}");
                     }
                 }
-                Event::MouseMotion { x, y, .. } => app.record_pointer("Pointer", x, y),
-                Event::MouseButtonDown { x, y, .. } => app.record_pointer("Click", x, y),
-                _ => {}
+                SdlEvent::MouseMotion { x, y } => app.record_pointer("Pointer", x, y),
+                SdlEvent::MouseButtonDown { x, y } => app.record_pointer("Click", x, y),
             }
         }
 
@@ -168,7 +155,7 @@ fn run() -> Result<(), WebosError> {
         let (w, h) = window.drawable_size();
         clear_transparent(&gl, &gl_spec);
         app.render(&mut canvas, font, w, h);
-        window.gl_swap_window();
+        window.swap_window();
 
         fps_frames += 1;
         let elapsed = fps_window_start.elapsed();

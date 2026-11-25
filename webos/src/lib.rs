@@ -7,3 +7,4 @@ pub mod app;
 pub mod gl_config;
 pub mod input;
 pub mod platform;
+pub mod sdl;

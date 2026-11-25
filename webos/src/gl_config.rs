@@ -1,8 +1,7 @@
 //! OpenGL / OpenGL ES surface configuration and 1080p virtual layout scaling.
 
 use glow::HasContext;
-use sdl2::video::GLProfile;
-use sdl2::video::gl_attr::GLAttr;
+use sdl2_sys::{SDL_GLattr, SDL_GLprofile};
 
 pub const VIRTUAL_WIDTH: f32 = 1920.0;
 pub const VIRTUAL_HEIGHT: f32 = 1080.0;
@@ -27,10 +26,10 @@ impl GlTargetProfile {
         }
     }
 
-    pub const fn sdl_profile(self) -> GLProfile {
+    pub const fn sdl_profile(self) -> SDL_GLprofile {
         match self {
-            Self::DesktopCore { .. } => GLProfile::Core,
-            Self::OpenGlEs { .. } => GLProfile::GLES,
+            Self::DesktopCore { .. } => SDL_GLprofile::SDL_GL_CONTEXT_PROFILE_CORE,
+            Self::OpenGlEs { .. } => SDL_GLprofile::SDL_GL_CONTEXT_PROFILE_ES,
         }
     }
 
@@ -63,14 +62,23 @@ impl Default for GlSurfaceSpec {
     }
 }
 
-/// Applies required SDL2 GL context attributes before creating the window.
-pub fn apply_sdl_gl_attributes(gl_attr: &GLAttr<'_>, spec: &GlSurfaceSpec) {
+/// Returns the ordered `(attr, value)` pairs passed to `SDL_GL_SetAttribute` prior to window creation.
+pub const fn required_gl_attributes(spec: &GlSurfaceSpec) -> [(SDL_GLattr, i32); 6] {
     let (major, minor) = spec.profile.version();
-    gl_attr.set_context_profile(spec.profile.sdl_profile());
-    gl_attr.set_context_version(major, minor);
-    gl_attr.set_alpha_size(spec.alpha_bits);
-    gl_attr.set_stencil_size(spec.stencil_bits);
-    gl_attr.set_double_buffer(spec.double_buffer);
+    [
+        (
+            SDL_GLattr::SDL_GL_CONTEXT_PROFILE_MASK,
+            spec.profile.sdl_profile() as i32,
+        ),
+        (SDL_GLattr::SDL_GL_CONTEXT_MAJOR_VERSION, major as i32),
+        (SDL_GLattr::SDL_GL_CONTEXT_MINOR_VERSION, minor as i32),
+        (SDL_GLattr::SDL_GL_ALPHA_SIZE, spec.alpha_bits as i32),
+        (SDL_GLattr::SDL_GL_STENCIL_SIZE, spec.stencil_bits as i32),
+        (
+            SDL_GLattr::SDL_GL_DOUBLEBUFFER,
+            if spec.double_buffer { 1 } else { 0 },
+        ),
+    ]
 }
 
 /// Clears color and stencil buffers with transparent alpha for Starfish punch-through.
@@ -127,12 +135,23 @@ mod tests {
     #[test]
     fn desktop_profile_uses_core_3_3_and_es_profile_uses_gles() {
         assert_eq!(
-            GlTargetProfile::DesktopCore { major: 3, minor: 3 }.sdl_profile(),
-            GLProfile::Core
+            GlTargetProfile::DesktopCore { major: 3, minor: 3 }.sdl_profile() as u32,
+            SDL_GLprofile::SDL_GL_CONTEXT_PROFILE_CORE as u32
         );
         assert_eq!(
-            GlTargetProfile::OpenGlEs { major: 2, minor: 0 }.sdl_profile(),
-            GLProfile::GLES
+            GlTargetProfile::OpenGlEs { major: 2, minor: 0 }.sdl_profile() as u32,
+            SDL_GLprofile::SDL_GL_CONTEXT_PROFILE_ES as u32
+        );
+        let attrs = required_gl_attributes(&GlSurfaceSpec::default());
+        assert!(
+            attrs
+                .iter()
+                .any(|(a, v)| *a as u32 == SDL_GLattr::SDL_GL_ALPHA_SIZE as u32 && *v == 8)
+        );
+        assert!(
+            attrs
+                .iter()
+                .any(|(a, v)| *a as u32 == SDL_GLattr::SDL_GL_STENCIL_SIZE as u32 && *v == 8)
         );
     }
 

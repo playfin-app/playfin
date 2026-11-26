@@ -39,7 +39,10 @@ fetch() {
         exit 1
     fi
 
-    gh run watch "$run_id" --exit-status --interval 20 >/dev/null
+    if ! gh run watch "$run_id" --exit-status --interval 20 >/dev/null; then
+        echo "ERROR: the CI run failed. Why: gh run view $run_id --log-failed" >&2
+        exit 1
+    fi
 
     echo "▶ Downloading the .ipk"
     rm -rf "$IPK_DIR"

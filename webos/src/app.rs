@@ -276,31 +276,60 @@ impl SimulatorApp {
             &heading,
         );
 
+        let persistence_line = if self.diagnostics.survives_reinstall {
+            format!(
+                "Data Dir ({}, persistent=true): {}",
+                self.diagnostics.storage_note, self.diagnostics.data_dir
+            )
+        } else {
+            format!(
+                "WARNING NOT PERSISTENT ({}, fails Gate 1 reinstall): {}",
+                self.diagnostics.storage_note, self.diagnostics.data_dir
+            )
+        };
+
         let lines = [
-            format!("Device ID (reinstall test): {}", self.diagnostics.device_id),
-            format!(
-                "Data Dir ({}, persistent={}): {}",
-                self.diagnostics.storage_note,
-                self.diagnostics.survives_reinstall,
-                self.diagnostics.data_dir
+            (
+                format!("Device ID (reinstall test): {}", self.diagnostics.device_id),
+                Color::rgb(224, 232, 244),
             ),
-            format!(
-                "Env HOME={}  |  XDG_DATA_HOME={}",
-                self.diagnostics.home_env, self.diagnostics.xdg_data_env
+            (
+                persistence_line,
+                if self.diagnostics.survives_reinstall {
+                    Color::rgb(138, 232, 168)
+                } else {
+                    Color::rgb(255, 196, 92)
+                },
             ),
-            format!(
-                "HTTPS / TLS (bundled-roots + ring): {}",
-                self.diagnostics.https_status
+            (
+                format!(
+                    "Env HOME={}  |  XDG_DATA_HOME={}",
+                    self.diagnostics.home_env, self.diagnostics.xdg_data_env
+                ),
+                Color::rgb(224, 232, 244),
             ),
-            format!("argv[1]: {}", self.diagnostics.argv1_preview),
-            format!("Last Input: {}", self.diagnostics.last_input),
+            (
+                format!(
+                    "HTTPS / TLS (bundled-roots + ring): {}",
+                    self.diagnostics.https_status
+                ),
+                Color::rgb(224, 232, 244),
+            ),
+            (
+                format!("argv[1]: {}", self.diagnostics.argv1_preview),
+                Color::rgb(224, 232, 244),
+            ),
+            (
+                format!("Last Input: {}", self.diagnostics.last_input),
+                Color::rgb(224, 232, 244),
+            ),
         ];
 
-        let mut body = Paint::color(Color::rgb(224, 232, 244));
-        body.set_font(&[font]);
-        body.set_font_size(23.0);
-        body.set_text_baseline(Baseline::Middle);
-        for (idx, line) in lines.iter().enumerate() {
+        for (idx, (line, color)) in lines.iter().enumerate() {
+            let mut body = Paint::color(*color);
+            body.set_font(&[font]);
+            body.set_font_size(23.0);
+            body.set_text_baseline(Baseline::Middle);
             let y = panel_y + 102.0 + (idx as f32) * 52.0;
             let _ = canvas.fill_text(116.0, y, line, &body);
         }

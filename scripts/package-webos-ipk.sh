@@ -71,8 +71,8 @@ cp "$ROOT/webos/packaging/appinfo.json" "$STAGE_DIR/"
 cp "$ROOT/webos/packaging/icon.png" "$STAGE_DIR/"
 cp "$ROOT/webos/packaging/largeIcon.png" "$STAGE_DIR/"
 
-# Bundle SDL-webOS shared libraries from the SDK sysroot alongside the binary ($ORIGIN/lib).
-cp -a "$SYSROOT"/usr/lib/libSDL2*.so* "$STAGE_DIR/lib/"
+# Bundle SDL2 shared library from the SDK sysroot alongside the binary ($ORIGIN/lib).
+cp -a "$SYSROOT"/usr/lib/libSDL2-2.0.so* "$STAGE_DIR/lib/"
 
 echo "▶ Packaging .ipk via ares-package"
 ares-package "$STAGE_DIR" -o "$OUT_DIR"

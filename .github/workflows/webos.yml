@@ -54,6 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       WEBOS_SDK_TAG: "2026.08-webos"
+      WEBOS_SDK_SHA256_X86_64: "2230a6351e5cce6fcb9d4fdcb4697335f223995401ef969c81744aaeb14c5344"
 
     steps:
       - uses: actions/checkout@v4
@@ -70,7 +71,7 @@ jobs:
 
       - name: Install @webos-tools/cli and libclang for bindgen
         run: |
-          npm install -g @webos-tools/cli
+          npm install -g @webos-tools/cli@3.2.6
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends clang libclang-dev
 
@@ -79,7 +80,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/webos-sdk-cache
-          key: webos-sdk-${{ env.WEBOS_SDK_TAG }}-x86_64
+          key: webos-sdk-${{ env.WEBOS_SDK_TAG }}-x86_64-${{ env.WEBOS_SDK_SHA256_X86_64 }}
 
       - name: Download webOS SDK
         if: steps.cache-sdk.outputs.cache-hit != 'true'
@@ -88,8 +89,9 @@ jobs:
           curl -fsSL --retry 3 -o ~/webos-sdk-cache/sdk.tar.gz \
             "https://github.com/openlgtv/buildroot-nc4/releases/download/${WEBOS_SDK_TAG}/arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz"
 
-      - name: Extract and relocate webOS SDK
+      - name: Verify webOS SDK checksum and extract
         run: |
+          echo "${WEBOS_SDK_SHA256_X86_64}  $HOME/webos-sdk-cache/sdk.tar.gz" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/webos-sdk"
           tar -xzf ~/webos-sdk-cache/sdk.tar.gz --strip-components=1 -C "$RUNNER_TEMP/webos-sdk"
           cd "$RUNNER_TEMP/webos-sdk" && ./relocate-sdk.sh

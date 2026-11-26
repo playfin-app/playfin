@@ -98,6 +98,8 @@ pub fn core_version() -> String {
 }
 
 /// Performs a lightweight HTTPS GET using the configured TLS backend and root store.
+#[doc(hidden)]
+#[cfg(feature = "bundled-roots")]
 pub async fn probe_https_status(url: &str) -> Result<u16, JellyfinError> {
     let client = http_client_builder()
         .timeout(Duration::from_secs(10))

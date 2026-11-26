@@ -28,9 +28,9 @@ Target hardware: **LG C1 (webOS 6.x)** in **non-root LG Developer Mode** (no roo
 - [x] Add `JellyfinClient::new_with_identity` / `restore_with_identity` (preserving `new()`/`restore()` Mac behavior with tests). Merge `ClientIdentity` to `dev` early.
 - [x] Add opt-in `bundled-roots` (`webpki-roots` + `reqwest 0.13` `ClientConfig`) and `ring-tls` features in `core/Cargo.toml` (macOS defaults unchanged).
 
-### Task 0.3b — webOS NDK Cross-Compile, CI `.ipk` & TV Gate 1 (`review: self`)
-- [x] Add Dockerfile (`openlgtv/buildroot-nc4` `2026.08-webos` SDK with `SDL2_WEBOS`) targeting `armv7-unknown-linux-gnueabi` (`softfp`) + `appinfo.json` (`"type": "native"`) + `.ipk` packaging (`ares-package`) bundling `libSDL2*.so` (`$ORIGIN/lib` rpath).
-- [x] Configure `webos/build.rs` and `scripts/package-webos-ipk.sh` (`readelf -d` check; verify armv7 cross-link in CI).
+### Task 0.3b — webOS NDK Cross-Compile, CI `.ipk` & TV Gate 1 (`review: sonnet`)
+- [x] Add Dockerfile (`openlgtv/buildroot-nc4` `2026.08-webos` SDK with `SDL2_WEBOS`, SHA256-verified) targeting `armv7-unknown-linux-gnueabi` (`softfp`) + `appinfo.json` (`"type": "native"`) + `.ipk` packaging (`ares-package`) bundling `libSDL2-2.0.so*` (`$ORIGIN/lib` rpath) and linking `libglibc_polyfills.a`.
+- [x] Verify `core`'s `crate-type = ["lib", "staticlib", "cdylib"]` causes no armv7 cross-link friction (`webos/build.rs`, `scripts/package-webos-ipk.sh`; CI run `45733010151` built `com.playfin.webos_0.1.0_arm.ipk` cleanly, `readelf -d` shows `libSDL2-2.0.so.0` + `RUNPATH=$ORIGIN/lib` + `GLIBC_2.4..2.12`).
 - [x] Add `.github/workflows/webos.yml` (`paths: webos/**, core/**`) running host `fmt`/`clippy --all-targets`/`test` (`libsdl2-dev`) + NDK `.ipk` build (failing hard if NDK or `ares-package` is missing).
 - [ ] **TV Gate 1 (Non-root Developer Mode on LG C1 — recorded log/photo + FPS):**
   1. Binary links `playfin_core` and performs a real HTTPS request inside `jailer`.

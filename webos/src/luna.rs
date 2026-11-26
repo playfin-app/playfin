@@ -39,6 +39,10 @@ type GDestroyNotify = extern "C" fn(*mut c_void);
 type LsErrorInitFn = unsafe extern "C" fn(*mut LsError) -> bool;
 type LsErrorFreeFn = unsafe extern "C" fn(*mut LsError);
 type LsRegisterFn = unsafe extern "C" fn(*const c_char, *mut *mut c_void, *mut LsError) -> bool;
+/// `LSRegisterApplicationService(name, app_id, sh, err)`: a handle tied to `app_id`. With a NULL
+/// name it does not clash with the `<app id>` service name that SDL-webOS already registers.
+type LsRegisterAppServiceFn =
+    unsafe extern "C" fn(*const c_char, *const c_char, *mut *mut c_void, *mut LsError) -> bool;
 type LsUnregisterFn = unsafe extern "C" fn(*mut c_void, *mut LsError) -> bool;
 type LsGmainContextAttachFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut LsError) -> bool;
 type LsCallFn = unsafe extern "C" fn(
@@ -51,18 +55,6 @@ type LsCallFn = unsafe extern "C" fn(
     *mut LsError,
 ) -> bool;
 type LsCallOneReplyFn = LsCallFn;
-/// `LSCallFromApplication[OneReply]`: same as `LSCall` plus an `applicationID` argument,
-/// so the call is made on behalf of the app (what PlxNative uses for `com.webos.media`).
-type LsCallFromAppFn = unsafe extern "C" fn(
-    *mut c_void,
-    *const c_char,
-    *const c_char,
-    *const c_char,
-    LsFilterFunc,
-    *mut c_void,
-    *mut c_ulong,
-    *mut LsError,
-) -> bool;
 type LsCallCancelFn = unsafe extern "C" fn(*mut c_void, c_ulong, *mut LsError) -> bool;
 type LsMessageGetPayloadFn = unsafe extern "C" fn(*mut c_void) -> *const c_char;
 
@@ -98,13 +90,12 @@ struct LunaApi {
     ls_error_init: LsErrorInitFn,
     ls_error_free: LsErrorFreeFn,
     ls_register: LsRegisterFn,
+    ls_register_app_service: Option<LsRegisterAppServiceFn>,
     ls_unregister: LsUnregisterFn,
     ls_gmain_context_attach: LsGmainContextAttachFn,
     ls_call: LsCallFn,
     ls_call_one_reply: LsCallOneReplyFn,
     ls_call_cancel: LsCallCancelFn,
-    ls_call_from_app: Option<LsCallFromAppFn>,
-    ls_call_from_app_one_reply: Option<LsCallFromAppFn>,
     ls_message_get_payload: LsMessageGetPayloadFn,
     g_main_context_new: GMainContextNewFn,
     g_main_context_unref: GMainContextUnrefFn,
@@ -150,6 +141,11 @@ impl LunaApi {
                 ls_error_init: resolve_fn::<LsErrorInitFn>(&ls2, c"LSErrorInit")?,
                 ls_error_free: resolve_fn::<LsErrorFreeFn>(&ls2, c"LSErrorFree")?,
                 ls_register: resolve_fn::<LsRegisterFn>(&ls2, c"LSRegister")?,
+                ls_register_app_service: resolve_fn::<LsRegisterAppServiceFn>(
+                    &ls2,
+                    c"LSRegisterApplicationService",
+                )
+                .ok(),
                 ls_unregister: resolve_fn::<LsUnregisterFn>(&ls2, c"LSUnregister")?,
                 ls_gmain_context_attach: resolve_fn::<LsGmainContextAttachFn>(
                     &ls2,
@@ -158,13 +154,6 @@ impl LunaApi {
                 ls_call: resolve_fn::<LsCallFn>(&ls2, c"LSCall")?,
                 ls_call_one_reply: resolve_fn::<LsCallOneReplyFn>(&ls2, c"LSCallOneReply")?,
                 ls_call_cancel: resolve_fn::<LsCallCancelFn>(&ls2, c"LSCallCancel")?,
-                ls_call_from_app: resolve_fn::<LsCallFromAppFn>(&ls2, c"LSCallFromApplication")
-                    .ok(),
-                ls_call_from_app_one_reply: resolve_fn::<LsCallFromAppFn>(
-                    &ls2,
-                    c"LSCallFromApplicationOneReply",
-                )
-                .ok(),
                 ls_message_get_payload: resolve_fn::<LsMessageGetPayloadFn>(
                     &ls2,
                     c"LSMessageGetPayload",
@@ -242,8 +231,6 @@ struct BusWorkerState {
     ls_handle: Option<SendPtr>,
     queue: VecDeque<BusOp>,
     callback_ctx: *mut c_void,
-    /// When set (and the TV exports it), calls go through `LSCallFromApplication*` with this id.
-    app_id: Option<CString>,
 }
 // SAFETY: Synchronized via `Arc<Mutex<BusWorkerState>>`; GLib pointers are freed strictly on worker thread.
 unsafe impl Send for BusWorkerState {}
@@ -355,7 +342,7 @@ extern "C" fn drain_ops_cb(data: *mut c_void) -> c_int {
     // SAFETY: Borrowed until `drop_arc_state` runs immediately after returning `0`.
     let state_ref = unsafe { &*(data as *const Mutex<BusWorkerState>) };
     let ops: Vec<BusOp>;
-    let (api, handle, mloop, router_ptr, app_id) = {
+    let (api, handle, mloop, router_ptr) = {
         let Ok(mut guard) = state_ref.lock() else {
             return 0;
         };
@@ -365,7 +352,6 @@ extern "C" fn drain_ops_cb(data: *mut c_void) -> c_int {
             guard.ls_handle.as_ref().map(|p| p.0).unwrap_or(null_mut()),
             guard.mloop.as_ref().map(|p| p.0).unwrap_or(null_mut()),
             guard.callback_ctx as *mut CallbackRouter,
-            guard.app_id.clone(),
         )
     };
 
@@ -404,23 +390,7 @@ extern "C" fn drain_ops_cb(data: *mut c_void) -> c_int {
                 // SAFETY: Valid `LSHandle`, `LSError`, and NUL-terminated C strings.
                 unsafe {
                     (api.ls_error_init)(&mut lserr);
-                    let from_app = if subscribe {
-                        api.ls_call_from_app
-                    } else {
-                        api.ls_call_from_app_one_reply
-                    };
-                    let ok = if let (Some(call_fn), Some(id)) = (from_app, app_id.as_ref()) {
-                        call_fn(
-                            handle,
-                            c_uri.as_ptr(),
-                            c_payload.as_ptr(),
-                            id.as_ptr(),
-                            luna_msg_cb,
-                            call_ctx as *mut c_void,
-                            &mut token,
-                            &mut lserr,
-                        )
-                    } else if subscribe {
+                    let ok = if subscribe {
                         (api.ls_call)(
                             handle,
                             c_uri.as_ptr(),
@@ -505,7 +475,6 @@ impl LunaClient {
             ls_handle: None,
             queue: VecDeque::new(),
             callback_ctx: null_mut(),
-            app_id: app_id.and_then(|s| CString::new(s).ok()),
         }));
 
         let state_thread = state.clone();
@@ -523,34 +492,35 @@ impl LunaClient {
             }
 
             let mut handle: *mut c_void = null_mut();
-            let mut shape = String::from("anon");
-            // Named candidates: the app id, then `<app id>-<pid>`. Each failure is kept for the log.
-            let candidates: Vec<String> = app_id_owned
-                .as_deref()
-                .map(|id| vec![id.to_string(), format!("{id}-{}", std::process::id())])
-                .unwrap_or_default();
-            let mut failures: Vec<String> = Vec::new();
-            // SAFETY: Tries named registration first, then anonymous.
+            let mut shape = "anon";
+            let app_id_c = app_id_owned.as_deref().and_then(|s| CString::new(s).ok());
+            // SAFETY: Tries named, then app-service (NULL name + app id), then anonymous.
+            // Each failure is logged so the TV log shows why a fallback was used.
             let registered = unsafe {
                 (api.ls_error_init)(&mut lserr);
                 let mut ok = false;
-                for name in &candidates {
-                    let Ok(c_name) = CString::new(name.as_str()) else {
-                        continue;
-                    };
-                    ok = (api.ls_register)(c_name.as_ptr(), &mut handle, &mut lserr);
+                if let Some(id) = app_id_c.as_ref() {
+                    ok = (api.ls_register)(id.as_ptr(), &mut handle, &mut lserr);
                     if ok {
-                        shape = format!("named {name}");
-                        break;
+                        shape = "named";
+                    } else {
+                        let msg = api.take_ls_error(&mut lserr);
+                        eprintln!("[playfin_webos] LSRegister(app id) failed: {msg}");
+                        (api.ls_error_init)(&mut lserr);
                     }
-                    failures.push(format!("{name}: {}", api.take_ls_error(&mut lserr)));
-                    (api.ls_error_init)(&mut lserr);
                 }
-                if !failures.is_empty() {
-                    eprintln!(
-                        "[playfin_webos] LSRegister named failed: {}",
-                        failures.join(" | ")
-                    );
+                if !ok
+                    && let (Some(id), Some(register_app)) =
+                        (app_id_c.as_ref(), api.ls_register_app_service)
+                {
+                    ok = register_app(null(), id.as_ptr(), &mut handle, &mut lserr);
+                    if ok {
+                        shape = "appService";
+                    } else {
+                        let msg = api.take_ls_error(&mut lserr);
+                        eprintln!("[playfin_webos] LSRegisterApplicationService failed: {msg}");
+                        (api.ls_error_init)(&mut lserr);
+                    }
                 }
                 if !ok {
                     ok = (api.ls_register)(null(), &mut handle, &mut lserr);
@@ -615,10 +585,7 @@ impl LunaClient {
                 guard.callback_ctx = router_ptr as *mut c_void;
             }
 
-            if app_id_owned.is_some() && api.ls_call_from_app.is_some() {
-                shape.push_str(" + callFromApp");
-            }
-            let _ = ready_tx.send(Ok(shape));
+            let _ = ready_tx.send(Ok(shape.to_string()));
 
             // SAFETY: Runs until `g_main_loop_quit` on shutdown; frees router/calls after `LSUnregister`.
             unsafe {

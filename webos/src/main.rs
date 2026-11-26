@@ -4,11 +4,13 @@
 use femtovg::Canvas;
 use femtovg::renderer::OpenGl;
 use playfin_core::{ClientIdentity, JellyfinClient, probe_https_status};
-use playfin_webos::app::{Gate1Diagnostics, SimulatorApp};
+use playfin_webos::app::{AppCommand, Gate1Diagnostics, SimulatorApp};
 use playfin_webos::gl_config::{GlSurfaceSpec, clear_transparent};
-use playfin_webos::input::map_key_input;
+use playfin_webos::input::{NavAction, map_key_input};
 use playfin_webos::platform::{LaunchContext, resolve_persistent_data_dir};
 use playfin_webos::sdl::{SdlContext, SdlEvent, set_hint};
+use playfin_webos::spike_config::{SpikeConfig, load_spike_config};
+use playfin_webos::starfish::{StarfishController, StreamKind};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -46,9 +48,19 @@ fn spawn_https_probe() -> Result<(tokio::runtime::Runtime, mpsc::Receiver<String
     Ok((rt, rx))
 }
 
-fn build_initial_diagnostics() -> Gate1Diagnostics {
-    let ctx = LaunchContext::from_env(std::env::args());
+fn init_context_and_config() -> (Gate1Diagnostics, SpikeConfig, String) {
+    let raw_args: Vec<String> = std::env::args().collect();
+    let ctx = LaunchContext::from_env(raw_args.clone());
     let storage = resolve_persistent_data_dir(&ctx);
+    let (spike_cfg, cfg_source) =
+        load_spike_config(&storage.data_dir, raw_args.get(1).map(String::as_str));
+
+    let app_id = spike_cfg
+        .app_id
+        .clone()
+        .or_else(|| std::env::var("APPID").ok().filter(|v| !v.trim().is_empty()))
+        .unwrap_or_else(|| "com.playfin.webos".to_string());
+
     let data_dir_str = storage.data_dir.to_string_lossy().to_string();
     let client = JellyfinClient::new_with_identity(
         "http://localhost:8096",
@@ -64,6 +76,7 @@ fn build_initial_diagnostics() -> Gate1Diagnostics {
         home_env: ctx.home_env.unwrap_or_else(|| "unset".to_string()),
         xdg_data_env: ctx.xdg_data_env.unwrap_or_else(|| "unset".to_string()),
         argv1_preview: ctx.argv1_preview,
+        config_source: cfg_source,
         ..Gate1Diagnostics::default()
     };
 
@@ -77,12 +90,66 @@ fn build_initial_diagnostics() -> Gate1Diagnostics {
         diag.xdg_data_env,
         diag.argv1_preview
     );
-    diag
+    (diag, spike_cfg, app_id)
+}
+
+fn handle_spike_trigger(
+    idx: usize,
+    app: &mut SimulatorApp,
+    cfg: &SpikeConfig,
+    starfish: &mut StarfishController,
+    dts_toggle: &mut bool,
+) {
+    let key = cfg.api_key.as_deref();
+    let mode = app.diagnostics.auth_mode;
+    match idx {
+        0 => starfish.refresh_probe(),
+        1 => {
+            if let Some(url) = cfg.mkv_url.as_deref() {
+                starfish.load_stream(url, StreamKind::MkvDirect, key, mode);
+            } else {
+                starfish.status.last_event =
+                    format!("No mkv_url in {}", app.diagnostics.config_source);
+            }
+        }
+        2 => {
+            if let Some(url) = cfg.hls_url.as_deref() {
+                starfish.load_stream(url, StreamKind::HlsRemux, key, mode);
+            } else {
+                starfish.status.last_event =
+                    format!("No hls_url in {}", app.diagnostics.config_source);
+            }
+        }
+        3 => {
+            app.diagnostics.auth_mode = mode.toggle();
+            starfish.status.last_event = format!("Auth -> {}", app.diagnostics.auth_mode.label());
+        }
+        4 => starfish.toggle_play_pause(),
+        5 => starfish.seek_by_ms(30_000),
+        6 => starfish.cycle_audio_track(),
+        7 => {
+            let pick_truehd = *dts_toggle && cfg.truehd_url.is_some();
+            *dts_toggle = !*dts_toggle;
+            let chosen = if pick_truehd {
+                cfg.truehd_url.as_deref()
+            } else {
+                cfg.dts_url.as_deref().or(cfg.truehd_url.as_deref())
+            };
+            if let Some(url) = chosen {
+                starfish.load_stream(url, StreamKind::AudioCodecTest, key, mode);
+            } else {
+                starfish.status.last_event =
+                    format!("No dts_url/truehd_url in {}", app.diagnostics.config_source);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn run() -> Result<(), WebosError> {
-    let diagnostics = build_initial_diagnostics();
+    let (diagnostics, spike_cfg, app_id) = init_context_and_config();
     let (_rt, https_rx) = spawn_https_probe()?;
+    let mut starfish = StarfishController::new(app_id);
 
     if cfg!(feature = "webos") {
         set_hint("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true");
@@ -114,9 +181,11 @@ fn run() -> Result<(), WebosError> {
         .map_err(|e| WebosError::Font(e.to_string()))?;
 
     let mut app = SimulatorApp::new(playfin_core::core_version(), diagnostics);
+    app.diagnostics.starfish = starfish.status.clone();
     let mut last_frame = Instant::now();
     let mut fps_window_start = Instant::now();
     let mut fps_frames: u32 = 0;
+    let mut dts_toggle = false;
 
     let max_frames = std::env::var("PLAYFIN_WEBOS_SMOKE_FRAMES")
         .ok()
@@ -133,24 +202,55 @@ fn run() -> Result<(), WebosError> {
             app.diagnostics.https_status = https_result;
         }
 
+        starfish.poll_events();
+
         while let Some(event) = sdl.poll_event() {
             match event {
                 SdlEvent::Quit => break 'running,
                 SdlEvent::KeyDown { keycode, scancode } => {
                     if let Some(action) = map_key_input(keycode, scancode) {
-                        if !app.handle_action(action) {
-                            break 'running;
+                        if action == NavAction::Back && starfish.status.media_id.is_some() {
+                            starfish.unload();
+                            continue;
+                        }
+                        match app.handle_action(action) {
+                            AppCommand::Quit => break 'running,
+                            AppCommand::TriggerAction(idx) => {
+                                handle_spike_trigger(
+                                    idx,
+                                    &mut app,
+                                    &spike_cfg,
+                                    &mut starfish,
+                                    &mut dts_toggle,
+                                );
+                            }
+                            AppCommand::None => {}
                         }
                     } else {
                         app.diagnostics.last_input =
                             format!("RawKey: sym={keycode} scancode={scancode}");
                     }
                 }
-                SdlEvent::MouseMotion { x, y } => app.record_pointer("Pointer", x, y),
-                SdlEvent::MouseButtonDown { x, y } => app.record_pointer("Click", x, y),
+                SdlEvent::MouseMotion { x, y } => {
+                    let (ww, wh) = window.window_size();
+                    app.record_pointer("Pointer", x, y, ww, wh);
+                }
+                SdlEvent::MouseButtonDown { x, y } => {
+                    let (ww, wh) = window.window_size();
+                    if let AppCommand::TriggerAction(idx) = app.handle_click(x, y, ww, wh) {
+                        handle_spike_trigger(
+                            idx,
+                            &mut app,
+                            &spike_cfg,
+                            &mut starfish,
+                            &mut dts_toggle,
+                        );
+                    }
+                }
             }
         }
 
+        app.diagnostics.starfish = starfish.status.clone();
         app.tick(dt);
         let (w, h) = window.drawable_size();
         clear_transparent(&gl, &gl_spec);
@@ -173,6 +273,7 @@ fn run() -> Result<(), WebosError> {
         }
     }
 
+    starfish.unload();
     Ok(())
 }
 

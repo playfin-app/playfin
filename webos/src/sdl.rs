@@ -208,6 +208,15 @@ impl<'sdl> SdlGlWindow<'sdl> {
         (w.max(0) as u32, h.max(0) as u32)
     }
 
+    /// Queries the logical window dimensions used by SDL pointer events.
+    pub fn window_size(&self) -> (u32, u32) {
+        let mut w: i32 = 0;
+        let mut h: i32 = 0;
+        // SAFETY: `self.window` is a valid live SDL_Window and both out-pointers are valid.
+        unsafe { sys::SDL_GetWindowSize(self.window.as_ptr(), &mut w, &mut h) };
+        (w.max(0) as u32, h.max(0) as u32)
+    }
+
     /// Presents the rendered framebuffer.
     pub fn swap_window(&self) {
         // SAFETY: `self.window` is valid and has an active OpenGL context.

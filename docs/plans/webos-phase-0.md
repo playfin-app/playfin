@@ -37,13 +37,13 @@ Target hardware: **LG C1 (webOS 6.x)** in **non-root LG Developer Mode** (no roo
   2. Logs `$HOME` / XDG paths inside `jailer`, calls `load_or_create_device_id` into the persistent data dir (NOT install dir `/media/developer/apps/...`), **reinstalls `.ipk`**, and proves `device_id` survives.
   3. Renders `femtovg` (stencil 8, alpha 8, `SDL_GL_CONTEXT_PROFILE_MASK = SDL_GL_CONTEXT_PROFILE_ES`) at 60 fps, handles `argv[1]` JSON, and logs Magic Remote + D-pad input.
 
-### Task 0.4 — Starfish (`libplayerAPIs`) Playback Spike & Go/No-Go Gate (`review: sonnet`, unsafe FFI)
-- Minimal `webos/native/starfish_shim.cpp` (`extern "C"`) + Rust test harness running under non-root `native_devmode` `jailer`.
-- **Test Matrix on LG C1:**
+### Task 0.4 — Starfish (`com.webos.media` / `libplayerAPIs`) Playback Spike & Go/No-Go Gate (`review: sonnet`, unsafe FFI)
+- [ ] Implement 100% pure-Rust `dlopen` FFI playback controller & test harness (`webos/src/luna.rs`, `webos/src/exported_window.rs`, `webos/src/starfish.rs`, `webos/src/spike_config.rs`, `webos/src/app.rs` — zero C/C++ shim needed) and verify armv7 cross-compile in CI.
+- [ ] **Test Matrix on LG C1 (non-root `native_devmode` `jailer`):**
   1. HTTP MKV HEVC HDR10 (`static=true`) load.
   2. Jellyfin HLS remux (`master.m3u8`, video copy) load.
   3. Seek (`Seek`) accuracy & recovery.
-  4. Audio track switch.
+  4. Audio track switch (`selectTrack`).
   5. Auth check (`httpHeader` vs `?api_key=`, never logging `api_key` URLs).
   6. Alpha punch-through (`SDL_GL_ALPHA_SIZE=8`, `SDL_GL_STENCIL_SIZE=8`, `glClearColor(0,0,0,0)`, premultiplied alpha in `femtovg`, no dark text fringes).
   7. Empirical DTS and TrueHD/Atmos test on LG C1 to calibrate `DeviceProfile`.

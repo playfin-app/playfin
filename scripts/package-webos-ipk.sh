@@ -56,9 +56,12 @@ if [[ ! -f "$BIN" ]]; then
 fi
 
 echo "▶ Verifying dynamic dependencies, glibc versions, and rpath"
-"$WEBOS_SDK/bin/arm-webos-linux-gnueabi-readelf" -d "$BIN" | grep -E "NEEDED|RPATH|RUNPATH" || true
+DYN_INFO="$("$WEBOS_SDK/bin/arm-webos-linux-gnueabi-readelf" -d "$BIN")"
+printf '%s\n' "$DYN_INFO" | grep -E "NEEDED|RPATH|RUNPATH"
+printf '%s\n' "$DYN_INFO" | grep -q "libSDL2-2.0.so.0"
+printf '%s\n' "$DYN_INFO" | grep -Eq '(RUNPATH|RPATH).*\$ORIGIN/lib'
 "$WEBOS_SDK/bin/arm-webos-linux-gnueabi-readelf" -V "$BIN" | grep -E "Name: GLIBC" | sort -u || true
-"$WEBOS_SDK/bin/arm-webos-linux-gnueabi-readelf" -d "$SYSROOT"/usr/lib/libSDL2-2.0.so* | grep -E "NEEDED|SONAME" || true
+"$WEBOS_SDK/bin/arm-webos-linux-gnueabi-readelf" -d "$SYSROOT/usr/lib/libSDL2-2.0.so.0" | grep -E "NEEDED|SONAME"
 
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR/lib" "$OUT_DIR"
@@ -71,8 +74,8 @@ cp "$ROOT/webos/packaging/appinfo.json" "$STAGE_DIR/"
 cp "$ROOT/webos/packaging/icon.png" "$STAGE_DIR/"
 cp "$ROOT/webos/packaging/largeIcon.png" "$STAGE_DIR/"
 
-# Bundle SDL2 shared library from the SDK sysroot alongside the binary ($ORIGIN/lib).
-cp -a "$SYSROOT"/usr/lib/libSDL2-2.0.so* "$STAGE_DIR/lib/"
+# Bundle the dereferenced SDL2 SONAME library alongside the binary ($ORIGIN/lib) so packaging never depends on symlink handling.
+cp -L "$SYSROOT/usr/lib/libSDL2-2.0.so.0" "$STAGE_DIR/lib/libSDL2-2.0.so.0"
 
 echo "▶ Packaging .ipk via ares-package"
 ares-package "$STAGE_DIR" -o "$OUT_DIR"

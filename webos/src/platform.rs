@@ -23,7 +23,10 @@ impl LaunchContext {
             Some(arg) if !arg.trim().is_empty() => {
                 let trimmed = arg.trim();
                 let lower = trimmed.to_ascii_lowercase();
-                if lower.contains("api_key") || lower.contains("token") || lower.contains("secret")
+                if lower.contains("key")
+                    || lower.contains("token")
+                    || lower.contains("auth")
+                    || lower.contains("secret")
                 {
                     "SpikeConfig JSON (redacted)".to_string()
                 } else {
@@ -64,12 +67,12 @@ pub struct StorageProbe {
     pub note: String,
 }
 
-/// Returns `true` when `path` sits inside a webOS `.ipk` installation folder replaced on
-/// reinstall (`/media/developer/apps/...`) or an ephemeral volatile tmpfs path.
+/// Returns `true` when `path` sits inside a webOS `.ipk` application folder replaced on
+/// reinstall (`.../applications/...`) or an ephemeral volatile tmpfs path.
 pub fn is_ephemeral_install_path(path: &Path) -> bool {
     let s = path.to_string_lossy();
-    s.starts_with("/media/developer/apps/")
-        || s.starts_with("/media/cryptofs/apps/")
+    s.starts_with("/media/developer/apps/usr/palm/applications/")
+        || s.starts_with("/media/cryptofs/apps/usr/palm/applications/")
         || s == "/tmp"
         || s.starts_with("/tmp/")
         || s == "/var/tmp"
@@ -156,12 +159,31 @@ mod tests {
         let secret_ctx = LaunchContext::from_env(secret_args);
         assert!(!secret_ctx.argv1_preview.contains("super-secret"));
         assert!(secret_ctx.argv1_preview.contains("redacted"));
+
+        let camel_api_args = vec![
+            "playfin_webos".to_string(),
+            r#"{"mkv_url":"http://198.51.100.10:8096/v.mkv?ApiKey=abc"}"#.to_string(),
+        ];
+        let camel_ctx = LaunchContext::from_env(camel_api_args);
+        assert!(!camel_ctx.argv1_preview.contains("abc"));
+        assert!(camel_ctx.argv1_preview.contains("redacted"));
+
+        let auth_args = vec![
+            "playfin_webos".to_string(),
+            r#"{"auth":"bearer-123"}"#.to_string(),
+        ];
+        let auth_ctx = LaunchContext::from_env(auth_args);
+        assert!(!auth_ctx.argv1_preview.contains("bearer-123"));
+        assert!(auth_ctx.argv1_preview.contains("redacted"));
     }
 
     #[test]
     fn detects_ephemeral_webos_install_paths() {
         assert!(is_ephemeral_install_path(Path::new(
             "/media/developer/apps/usr/palm/applications/com.playfin.webos/data"
+        )));
+        assert!(!is_ephemeral_install_path(Path::new(
+            "/media/developer/apps/usr/palm/data/com.playfin.webos"
         )));
         assert!(is_ephemeral_install_path(Path::new("/tmp/playfin")));
         assert!(is_ephemeral_install_path(Path::new("/var/tmp/playfin")));

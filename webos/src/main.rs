@@ -211,7 +211,10 @@ fn run() -> Result<(), WebosError> {
                 SdlEvent::Quit => break 'running,
                 SdlEvent::KeyDown { keycode, scancode } => {
                     if let Some(action) = map_key_input(keycode, scancode) {
-                        if action == NavAction::Back && starfish.status.media_id.is_some() {
+                        if action == NavAction::Back
+                            && (starfish.status.media_id.is_some()
+                                || starfish.status.playback_state.starts_with("Loading"))
+                        {
                             starfish.unload();
                             continue;
                         }

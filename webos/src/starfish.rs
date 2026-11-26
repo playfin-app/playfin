@@ -155,6 +155,7 @@ pub struct StarfishController {
     window: Option<ExportedVideoWindow>,
     load_gen: u64,
     pending_unload: bool,
+    saw_video_info: bool,
     subscribed_media_id: Option<String>,
     pending_audio_track: Option<usize>,
     pub status: StarfishStatus,
@@ -171,6 +172,7 @@ impl StarfishController {
             window: None,
             load_gen: 0,
             pending_unload: false,
+            saw_video_info: false,
             subscribed_media_id: None,
             pending_audio_track: None,
             status: StarfishStatus {
@@ -221,7 +223,8 @@ impl StarfishController {
         if self.window.is_none() {
             match ExportedVideoWindow::create(1920, 1080) {
                 Ok(win) => {
-                    let _ = win.place(1920, 1080);
+                    let (pw, ph) = win.panel_resolution();
+                    let _ = win.place(pw, ph);
                     self.status.window_id = Some(win.window_id().to_string());
                     self.window = Some(win);
                 }
@@ -235,7 +238,9 @@ impl StarfishController {
 
         self.load_gen = self.load_gen.saturating_add(1);
         self.pending_unload = false;
+        self.saw_video_info = false;
         self.pending_audio_track = None;
+        self.status.video_info = "none".to_string();
 
         let window_id = self
             .window
@@ -339,6 +344,7 @@ impl StarfishController {
             self.status.media_id = None;
         }
         self.subscribed_media_id = None;
+        self.saw_video_info = false;
         self.pending_audio_track = None;
         self.status.position_ms = 0;
         self.status.duration_ms = 0;
@@ -451,6 +457,7 @@ impl StarfishController {
                 if let Some(win) = &self.window {
                     let _ = win.place(w, h);
                 }
+                self.saw_video_info = true;
                 self.status.video_info = format!("{w}x{h} {hdr}");
             }
         }
@@ -474,6 +481,15 @@ impl StarfishController {
         }
 
         if val.get("loadCompleted").is_some() {
+            if !self.saw_video_info {
+                if let Some(win) = &self.window {
+                    let (pw, ph) = win.panel_resolution();
+                    let _ = win.place(pw, ph);
+                    self.status.video_info = format!("videoInfo missing ({pw}x{ph})");
+                } else {
+                    self.status.video_info = "videoInfo missing".to_string();
+                }
+            }
             self.status.playback_state = "Loaded -> Play".to_string();
             self.status.last_event = "loadCompleted".to_string();
             if let (Some(client), Some(id)) = (&self.luna, &self.status.media_id) {

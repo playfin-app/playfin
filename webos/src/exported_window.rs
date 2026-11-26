@@ -204,6 +204,11 @@ impl ExportedVideoWindow {
         &self.window_id
     }
 
+    /// Returns the detected or fallback compositor panel resolution in pixels.
+    pub fn panel_resolution(&self) -> (i32, i32) {
+        (self.panel_w, self.panel_h)
+    }
+
     /// Updates exported video plane source/destination geometry cleanly inside the TV panel.
     pub fn place(&self, video_w: i32, video_h: i32) -> Result<(SdlRect, SdlRect), String> {
         let (mut src, mut dst) =

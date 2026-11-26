@@ -151,7 +151,8 @@ pub struct ExportedVideoWindow {
 
 impl ExportedVideoWindow {
     /// Creates a new video-type exported window ID to pass in `option.windowId` at media Load.
-    pub fn create(fallback_panel_w: i32, fallback_panel_h: i32) -> Result<Self, String> {
+    /// `window_w`/`window_h` is the SDL window size the destination rect is expressed in.
+    pub fn create(window_w: i32, window_h: i32) -> Result<Self, String> {
         let probe = probe_support();
         if !probe.supported {
             return Err(probe.detail);
@@ -185,10 +186,9 @@ impl ExportedVideoWindow {
         let window_id_c = CString::new(window_id.as_str())
             .map_err(|_| "exported window id contains interior NUL".to_string())?;
 
-        let (panel_w, panel_h) = probe.panel_resolution.unwrap_or((
-            fallback_panel_w.max(FALLBACK_PANEL_W),
-            fallback_panel_h.max(FALLBACK_PANEL_H),
-        ));
+        // The destination rect is in the app window's coordinate space (1920x1080 here), not the
+        // physical panel (3840x2160 on the C1): a 4K rect lands off-screen and nothing shows.
+        let (panel_w, panel_h) = (window_w.max(1), window_h.max(1));
 
         Ok(Self {
             window_id,

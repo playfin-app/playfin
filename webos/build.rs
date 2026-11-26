@@ -4,8 +4,9 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=WEBOS_SYSROOT");
 
-    // Cross-compile builds for LG webOS link against the Buildroot sysroot and resolve
-    // bundled shared libraries (e.g. libSDL2) from ./lib next to the binary.
+    // Cross-compile builds for LG webOS link against the Buildroot sysroot. At runtime the
+    // TV's own /usr/lib/libSDL2 is used: the sysroot copy only has stub exported-window
+    // functions (no video plane), so it must never be bundled or found via an rpath.
     if let Ok(sysroot) = std::env::var("WEBOS_SYSROOT")
         && !sysroot.is_empty()
     {
@@ -20,8 +21,6 @@ fn main() {
         } else {
             println!("cargo:warning=libglibc_polyfills.a not found under {sysroot}/usr/lib");
         }
-        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/lib");
-        println!("cargo:rustc-link-arg=-Wl,--enable-new-dtags");
         return;
     }
 

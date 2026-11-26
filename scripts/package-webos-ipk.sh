@@ -59,12 +59,17 @@ echo "▶ Verifying dynamic dependencies, glibc versions, and rpath"
 DYN_INFO="$("$WEBOS_SDK/bin/arm-webos-linux-gnueabi-readelf" -d "$BIN")"
 printf '%s\n' "$DYN_INFO" | grep -E "NEEDED|RPATH|RUNPATH"
 printf '%s\n' "$DYN_INFO" | grep -q "libSDL2-2.0.so.0"
-printf '%s\n' "$DYN_INFO" | grep -Eq '(RUNPATH|RPATH).*\$ORIGIN/lib'
+# The TV's /usr/lib/libSDL2 must be the one loaded (the sysroot copy has stub exported-window
+# functions, so video plays with sound but no picture). Fail if an rpath could override it.
+if printf '%s\n' "$DYN_INFO" | grep -Eq '(RUNPATH|RPATH)'; then
+    echo "ERROR: binary has an RPATH/RUNPATH; the TV's own libSDL2 must be used." >&2
+    exit 1
+fi
 "$WEBOS_SDK/bin/arm-webos-linux-gnueabi-readelf" -V "$BIN" | grep -E "Name: GLIBC" | sort -u || true
 "$WEBOS_SDK/bin/arm-webos-linux-gnueabi-readelf" -d "$SYSROOT/usr/lib/libSDL2-2.0.so.0" | grep -E "NEEDED|SONAME"
 
 rm -rf "$STAGE_DIR"
-mkdir -p "$STAGE_DIR/lib" "$OUT_DIR"
+mkdir -p "$STAGE_DIR" "$OUT_DIR"
 
 cp "$BIN" "$STAGE_DIR/playfin_webos"
 "$WEBOS_SDK/bin/arm-webos-linux-gnueabi-strip" "$STAGE_DIR/playfin_webos"
@@ -74,8 +79,7 @@ cp "$ROOT/webos/packaging/appinfo.json" "$STAGE_DIR/"
 cp "$ROOT/webos/packaging/icon.png" "$STAGE_DIR/"
 cp "$ROOT/webos/packaging/largeIcon.png" "$STAGE_DIR/"
 
-# Bundle the dereferenced SDL2 SONAME library alongside the binary ($ORIGIN/lib) so packaging never depends on symlink handling.
-cp -L "$SYSROOT/usr/lib/libSDL2-2.0.so.0" "$STAGE_DIR/lib/libSDL2-2.0.so.0"
+# libSDL2 is NOT bundled: the TV's /usr/lib copy has the real webOS video plane.
 
 echo "▶ Packaging .ipk via ares-package"
 ares-package "$STAGE_DIR" -o "$OUT_DIR"

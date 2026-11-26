@@ -38,7 +38,7 @@ Target hardware: **LG C1 (webOS 6.x)** in **non-root LG Developer Mode** (no roo
   3. Renders `femtovg` (stencil 8, alpha 8, `SDL_GL_CONTEXT_PROFILE_MASK = SDL_GL_CONTEXT_PROFILE_ES`) at 60 fps, handles `argv[1]` JSON, and logs Magic Remote + D-pad input.
 
 ### Task 0.4 — Starfish (`com.webos.media` / `libplayerAPIs`) Playback Spike & Go/No-Go Gate (`review: sonnet`, unsafe FFI)
-- [ ] Implement 100% pure-Rust `dlopen` FFI playback controller & test harness (`webos/src/luna.rs`, `webos/src/exported_window.rs`, `webos/src/starfish.rs`, `webos/src/spike_config.rs`, `webos/src/app.rs` — zero C/C++ shim needed) and verify armv7 cross-compile in CI.
+- [x] Implement 100% pure-Rust `dlopen` FFI playback controller & test harness (`webos/src/luna.rs`, `webos/src/exported_window.rs`, `webos/src/starfish.rs`, `webos/src/spike_config.rs`, `webos/src/app.rs` — zero C/C++ shim needed) and verify armv7 cross-compile in CI (verified green on CI run `45737137488` at `0a93401`).
 - [ ] **Test Matrix on LG C1 (non-root `native_devmode` `jailer`):**
   1. HTTP MKV HEVC HDR10 (`static=true`) load.
   2. Jellyfin HLS remux (`master.m3u8`, video copy) load.

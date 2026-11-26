@@ -1,0 +1,615 @@
+//! Pure-Rust dynamic wrapper over LG webOS `libluna-service2.so` and `libglib-2.0.so`.
+
+use std::collections::VecDeque;
+use std::ffi::{CStr, CString, c_char, c_int, c_ulong, c_void};
+use std::ptr::{null, null_mut};
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread::JoinHandle;
+
+/// ABI-compatible `LSError` matching `luna-service2/lunaservice.h`.
+#[repr(C)]
+struct LsError {
+    error_code: c_int,
+    message: *mut c_char,
+    file: *const c_char,
+    line: c_int,
+    func: *const c_char,
+    padding: *mut c_void,
+    magic: c_ulong,
+}
+
+impl LsError {
+    fn zeroed() -> Self {
+        Self {
+            error_code: 0,
+            message: null_mut(),
+            file: null(),
+            line: 0,
+            func: null(),
+            padding: null_mut(),
+            magic: 0,
+        }
+    }
+}
+
+type LsFilterFunc = extern "C" fn(*mut c_void, *mut c_void, *mut c_void) -> c_int;
+type GSourceFunc = extern "C" fn(*mut c_void) -> c_int;
+type GDestroyNotify = extern "C" fn(*mut c_void);
+
+type LsErrorInitFn = unsafe extern "C" fn(*mut LsError) -> c_int;
+type LsErrorFreeFn = unsafe extern "C" fn(*mut LsError);
+type LsRegisterFn = unsafe extern "C" fn(*const c_char, *mut *mut c_void, *mut LsError) -> c_int;
+type LsUnregisterFn = unsafe extern "C" fn(*mut c_void, *mut LsError) -> c_int;
+type LsGmainContextAttachFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut LsError) -> c_int;
+type LsCallFn = unsafe extern "C" fn(
+    *mut c_void,
+    *const c_char,
+    *const c_char,
+    LsFilterFunc,
+    *mut c_void,
+    *mut c_ulong,
+    *mut LsError,
+) -> c_int;
+type LsCallOneReplyFn = LsCallFn;
+type LsCallCancelFn = unsafe extern "C" fn(*mut c_void, c_ulong, *mut LsError) -> c_int;
+type LsMessageGetPayloadFn = unsafe extern "C" fn(*mut c_void) -> *const c_char;
+
+type GMainContextNewFn = unsafe extern "C" fn() -> *mut c_void;
+type GMainContextUnrefFn = unsafe extern "C" fn(*mut c_void);
+type GMainContextInvokeFullFn =
+    unsafe extern "C" fn(*mut c_void, c_int, GSourceFunc, *mut c_void, GDestroyNotify);
+type GMainLoopNewFn = unsafe extern "C" fn(*mut c_void, c_int) -> *mut c_void;
+type GMainLoopRunFn = unsafe extern "C" fn(*mut c_void);
+type GMainLoopQuitFn = unsafe extern "C" fn(*mut c_void);
+type GMainLoopUnrefFn = unsafe extern "C" fn(*mut c_void);
+
+struct RawLib(*mut c_void);
+// SAFETY: Shared library dlopen handles are immutable pointers closed once on Drop.
+unsafe impl Send for RawLib {}
+// SAFETY: Shared library dlopen handles can be inspected from any thread cleanly.
+unsafe impl Sync for RawLib {}
+
+impl Drop for RawLib {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: Handle opened by `dlopen` in `open_first`.
+            unsafe {
+                libc::dlclose(self.0);
+            }
+        }
+    }
+}
+
+struct LunaApi {
+    _glib: RawLib,
+    _ls2: RawLib,
+    ls_error_init: LsErrorInitFn,
+    ls_error_free: LsErrorFreeFn,
+    ls_register: LsRegisterFn,
+    ls_unregister: LsUnregisterFn,
+    ls_gmain_context_attach: LsGmainContextAttachFn,
+    ls_call: LsCallFn,
+    ls_call_one_reply: LsCallOneReplyFn,
+    ls_call_cancel: LsCallCancelFn,
+    ls_message_get_payload: LsMessageGetPayloadFn,
+    g_main_context_new: GMainContextNewFn,
+    g_main_context_unref: GMainContextUnrefFn,
+    g_main_context_invoke_full: GMainContextInvokeFullFn,
+    g_main_loop_new: GMainLoopNewFn,
+    g_main_loop_run: GMainLoopRunFn,
+    g_main_loop_quit: GMainLoopQuitFn,
+    g_main_loop_unref: GMainLoopUnrefFn,
+}
+
+unsafe fn open_first(candidates: &[&CStr]) -> Option<RawLib> {
+    for name in candidates {
+        // SAFETY: `name` is static NUL-terminated; `RTLD_NOW | RTLD_GLOBAL` loads C symbols cleanly.
+        let handle = unsafe { libc::dlopen(name.as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL) };
+        if !handle.is_null() {
+            return Some(RawLib(handle));
+        }
+    }
+    None
+}
+
+unsafe fn resolve_fn<F: Copy>(lib: &RawLib, name: &CStr) -> Result<F, String> {
+    // SAFETY: Caller provides a `Copy` function pointer matching the C prototype of `name`.
+    unsafe {
+        let ptr = libc::dlsym(lib.0, name.as_ptr());
+        if ptr.is_null() {
+            return Err(format!("missing symbol {}", name.to_string_lossy()));
+        }
+        Ok(std::mem::transmute_copy::<*mut c_void, F>(&ptr))
+    }
+}
+
+impl LunaApi {
+    fn load() -> Result<Self, String> {
+        // SAFETY: Both shared libraries use stable C ABIs when present on LG webOS targets.
+        unsafe {
+            let glib = open_first(&[c"libglib-2.0.so.0", c"libglib-2.0.so"])
+                .ok_or_else(|| "libglib-2.0 unavailable on host".to_string())?;
+            let ls2 = open_first(&[c"libluna-service2.so.3", c"libluna-service2.so"])
+                .ok_or_else(|| "libluna-service2 unavailable on host".to_string())?;
+
+            Ok(Self {
+                ls_error_init: resolve_fn::<LsErrorInitFn>(&ls2, c"LSErrorInit")?,
+                ls_error_free: resolve_fn::<LsErrorFreeFn>(&ls2, c"LSErrorFree")?,
+                ls_register: resolve_fn::<LsRegisterFn>(&ls2, c"LSRegister")?,
+                ls_unregister: resolve_fn::<LsUnregisterFn>(&ls2, c"LSUnregister")?,
+                ls_gmain_context_attach: resolve_fn::<LsGmainContextAttachFn>(
+                    &ls2,
+                    c"LSGmainContextAttach",
+                )?,
+                ls_call: resolve_fn::<LsCallFn>(&ls2, c"LSCall")?,
+                ls_call_one_reply: resolve_fn::<LsCallOneReplyFn>(&ls2, c"LSCallOneReply")?,
+                ls_call_cancel: resolve_fn::<LsCallCancelFn>(&ls2, c"LSCallCancel")?,
+                ls_message_get_payload: resolve_fn::<LsMessageGetPayloadFn>(
+                    &ls2,
+                    c"LSMessageGetPayload",
+                )?,
+                g_main_context_new: resolve_fn::<GMainContextNewFn>(&glib, c"g_main_context_new")?,
+                g_main_context_unref: resolve_fn::<GMainContextUnrefFn>(
+                    &glib,
+                    c"g_main_context_unref",
+                )?,
+                g_main_context_invoke_full: resolve_fn::<GMainContextInvokeFullFn>(
+                    &glib,
+                    c"g_main_context_invoke_full",
+                )?,
+                g_main_loop_new: resolve_fn::<GMainLoopNewFn>(&glib, c"g_main_loop_new")?,
+                g_main_loop_run: resolve_fn::<GMainLoopRunFn>(&glib, c"g_main_loop_run")?,
+                g_main_loop_quit: resolve_fn::<GMainLoopQuitFn>(&glib, c"g_main_loop_quit")?,
+                g_main_loop_unref: resolve_fn::<GMainLoopUnrefFn>(&glib, c"g_main_loop_unref")?,
+                _glib: glib,
+                _ls2: ls2,
+            })
+        }
+    }
+
+    fn take_ls_error(&self, err: &mut LsError) -> String {
+        let msg = if !err.message.is_null() {
+            // SAFETY: Non-null NUL-terminated error message populated by `luna-service2`.
+            unsafe { CStr::from_ptr(err.message) }
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            format!("LSError code {}", err.error_code)
+        };
+        // SAFETY: `err` was initialized via `ls_error_init`.
+        unsafe {
+            (self.ls_error_free)(err);
+        }
+        msg
+    }
+}
+
+/// Probes whether Luna Bus (`libluna-service2` + `libglib-2.0`) can load on this machine.
+pub fn probe_runtime() -> Result<String, String> {
+    let _api = LunaApi::load()?;
+    Ok("libluna-service2 + libglib-2.0 OK".to_string())
+}
+
+/// Raw JSON message delivered asynchronously from Luna Bus on a dedicated `GMainContext` thread.
+#[derive(Debug, Clone)]
+pub struct LunaMessage {
+    pub uri: String,
+    pub payload: String,
+    pub is_subscription: bool,
+}
+
+enum BusOp {
+    Call {
+        uri: String,
+        payload: String,
+        subscribe: bool,
+    },
+    Shutdown,
+}
+
+struct SendPtr(*mut c_void);
+// SAFETY: `GMainContext` is GLib thread-safe for `g_main_context_invoke_full`.
+unsafe impl Send for SendPtr {}
+
+struct BusWorkerState {
+    api: Arc<LunaApi>,
+    ctx: Option<SendPtr>,
+    mloop: Option<SendPtr>,
+    ls_handle: Option<SendPtr>,
+    queue: VecDeque<BusOp>,
+    callback_ctx: *mut c_void,
+}
+// SAFETY: Synchronized via `Arc<Mutex<BusWorkerState>>`; GLib pointers are freed strictly on worker thread.
+unsafe impl Send for BusWorkerState {}
+
+struct OwnedCallCtx(*mut CallUserCtx);
+impl Drop for OwnedCallCtx {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: Reclaimed only after `LSUnregister` has completed on the GLib thread.
+            unsafe {
+                drop(Box::from_raw(self.0));
+            }
+        }
+    }
+}
+
+struct CallbackRouter {
+    api: Arc<LunaApi>,
+    tx: mpsc::Sender<LunaMessage>,
+    active_calls: Vec<OwnedCallCtx>,
+}
+
+struct CallUserCtx {
+    router: *const CallbackRouter,
+    uri: String,
+    subscribe: bool,
+}
+
+extern "C" fn luna_msg_cb(_sh: *mut c_void, msg: *mut c_void, user_data: *mut c_void) -> c_int {
+    if user_data.is_null() || msg.is_null() {
+        return 1;
+    }
+    // SAFETY: `user_data` points to `CallUserCtx` owned by `CallbackRouter` until after `LSUnregister`.
+    let ctx = unsafe { &*(user_data as *const CallUserCtx) };
+    // SAFETY: `ctx.router` stays alive on GLib thread until after `LSUnregister` finishes.
+    let router = unsafe { &*ctx.router };
+    // SAFETY: `msg` is valid for the duration of this LS2 callback.
+    let payload_ptr = unsafe { (router.api.ls_message_get_payload)(msg) };
+    let payload = if payload_ptr.is_null() {
+        "{}".to_string()
+    } else {
+        // SAFETY: `LSMessageGetPayload` returns a NUL-terminated JSON string.
+        unsafe { CStr::from_ptr(payload_ptr) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    let _ = router.tx.send(LunaMessage {
+        uri: ctx.uri.clone(),
+        payload,
+        is_subscription: ctx.subscribe,
+    });
+    1
+}
+
+extern "C" fn drop_arc_state(data: *mut c_void) {
+    if !data.is_null() {
+        // SAFETY: Balances `Arc::into_raw` in `LunaClient::enqueue_state`.
+        unsafe {
+            drop(Arc::from_raw(data as *const Mutex<BusWorkerState>));
+        }
+    }
+}
+
+extern "C" fn drain_ops_cb(data: *mut c_void) -> c_int {
+    if data.is_null() {
+        return 0;
+    }
+    // SAFETY: Borrowed until `drop_arc_state` runs immediately after returning `0`.
+    let state_ref = unsafe { &*(data as *const Mutex<BusWorkerState>) };
+    let ops: Vec<BusOp>;
+    let (api, handle, mloop, router_ptr) = {
+        let Ok(mut guard) = state_ref.lock() else {
+            return 0;
+        };
+        ops = guard.queue.drain(..).collect();
+        (
+            guard.api.clone(),
+            guard.ls_handle.as_ref().map(|p| p.0).unwrap_or(null_mut()),
+            guard.mloop.as_ref().map(|p| p.0).unwrap_or(null_mut()),
+            guard.callback_ctx as *mut CallbackRouter,
+        )
+    };
+
+    for op in ops {
+        match op {
+            BusOp::Call {
+                uri,
+                payload,
+                subscribe,
+            } => {
+                if handle.is_null() || router_ptr.is_null() {
+                    continue;
+                }
+                let Ok(c_uri) = CString::new(uri.as_str()) else {
+                    continue;
+                };
+                let Ok(c_payload) = CString::new(payload.as_str()) else {
+                    continue;
+                };
+                let call_ctx = Box::into_raw(Box::new(CallUserCtx {
+                    router: router_ptr as *const CallbackRouter,
+                    uri: uri.clone(),
+                    subscribe,
+                }));
+                // SAFETY: Only `drain_ops_cb` mutates `active_calls` (exclusively on the GLib thread),
+                // and `luna_msg_cb` only reads `CallbackRouter`'s immutable `api`/`tx` fields.
+                unsafe {
+                    (*router_ptr).active_calls.push(OwnedCallCtx(call_ctx));
+                }
+
+                let mut lserr = LsError::zeroed();
+                let mut token: c_ulong = 0;
+                // SAFETY: Valid `LSHandle`, `LSError`, and NUL-terminated C strings.
+                unsafe {
+                    (api.ls_error_init)(&mut lserr);
+                    let ok = if subscribe {
+                        (api.ls_call)(
+                            handle,
+                            c_uri.as_ptr(),
+                            c_payload.as_ptr(),
+                            luna_msg_cb,
+                            call_ctx as *mut c_void,
+                            &mut token,
+                            &mut lserr,
+                        )
+                    } else {
+                        (api.ls_call_one_reply)(
+                            handle,
+                            c_uri.as_ptr(),
+                            c_payload.as_ptr(),
+                            luna_msg_cb,
+                            call_ctx as *mut c_void,
+                            &mut token,
+                            &mut lserr,
+                        )
+                    };
+                    if ok == 0 {
+                        let msg = api.take_ls_error(&mut lserr);
+                        let _ = (*router_ptr).tx.send(LunaMessage {
+                            uri,
+                            payload: serde_json::json!({ "returnValue": false, "errorText": msg })
+                                .to_string(),
+                            is_subscription: subscribe,
+                        });
+                    } else {
+                        (api.ls_error_free)(&mut lserr);
+                    }
+                }
+            }
+            BusOp::Shutdown => {
+                if !mloop.is_null() {
+                    // SAFETY: Called on GLib loop thread with active `GMainLoop`.
+                    unsafe {
+                        (api.g_main_loop_quit)(mloop);
+                    }
+                }
+            }
+        }
+    }
+
+    let _ = api.ls_call_cancel;
+    0
+}
+
+/// Asynchronous client connected to LG webOS Luna Bus (`com.webos.media`, etc.).
+pub struct LunaClient {
+    registration_shape: String,
+    state: Arc<Mutex<BusWorkerState>>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl LunaClient {
+    /// Connects to the Luna Bus (trying named `app_id` first, falling back to anonymous).
+    pub fn connect(app_id: Option<&str>) -> Result<(Self, mpsc::Receiver<LunaMessage>), String> {
+        let api = Arc::new(LunaApi::load()?);
+        let (msg_tx, msg_rx) = mpsc::channel();
+        let (ready_tx, ready_rx) = mpsc::channel::<Result<String, String>>();
+        let app_id_owned = app_id.map(str::to_string);
+
+        let state = Arc::new(Mutex::new(BusWorkerState {
+            api: api.clone(),
+            ctx: None,
+            mloop: None,
+            ls_handle: None,
+            queue: VecDeque::new(),
+            callback_ctx: null_mut(),
+        }));
+
+        let state_thread = state.clone();
+        let worker = std::thread::spawn(move || {
+            let mut lserr = LsError::zeroed();
+            // SAFETY: GLib context + loop lifecycle confined cleanly to this worker thread.
+            let (ctx, mloop) = unsafe {
+                let c = (api.g_main_context_new)();
+                let l = (api.g_main_loop_new)(c, 0);
+                (c, l)
+            };
+            if ctx.is_null() || mloop.is_null() {
+                let _ = ready_tx.send(Err("g_main_context_new / g_main_loop_new failed".into()));
+                return;
+            }
+
+            let mut handle: *mut c_void = null_mut();
+            let mut shape = "anon";
+            // SAFETY: Tries named registration first, then anonymous.
+            let registered = unsafe {
+                (api.ls_error_init)(&mut lserr);
+                let mut ok = 0;
+                if let Some(name) = app_id_owned.as_deref().and_then(|s| CString::new(s).ok()) {
+                    ok = (api.ls_register)(name.as_ptr(), &mut handle, &mut lserr);
+                    if ok != 0 {
+                        shape = "named";
+                    } else {
+                        let _ = api.take_ls_error(&mut lserr);
+                        (api.ls_error_init)(&mut lserr);
+                    }
+                }
+                if ok == 0 {
+                    ok = (api.ls_register)(null(), &mut handle, &mut lserr);
+                }
+                if ok == 0 {
+                    let msg = api.take_ls_error(&mut lserr);
+                    let _ = ready_tx.send(Err(format!("LSRegister failed: {msg}")));
+                    false
+                } else {
+                    (api.ls_error_free)(&mut lserr);
+                    true
+                }
+            };
+
+            if !registered || handle.is_null() {
+                // SAFETY: Release GLib loop/context on registration error.
+                unsafe {
+                    (api.g_main_loop_unref)(mloop);
+                    (api.g_main_context_unref)(ctx);
+                }
+                return;
+            }
+
+            // SAFETY: Attach `handle` to private `GMainContext` before running loop.
+            let attached = unsafe {
+                (api.ls_error_init)(&mut lserr);
+                let ok = (api.ls_gmain_context_attach)(handle, ctx, &mut lserr);
+                if ok == 0 {
+                    let msg = api.take_ls_error(&mut lserr);
+                    let _ = ready_tx.send(Err(format!("LSGmainContextAttach failed: {msg}")));
+                    false
+                } else {
+                    (api.ls_error_free)(&mut lserr);
+                    true
+                }
+            };
+
+            if !attached {
+                // SAFETY: Roll back handle and GLib objects on attach failure.
+                unsafe {
+                    (api.ls_error_init)(&mut lserr);
+                    let _ = (api.ls_unregister)(handle, &mut lserr);
+                    (api.ls_error_free)(&mut lserr);
+                    (api.g_main_loop_unref)(mloop);
+                    (api.g_main_context_unref)(ctx);
+                }
+                return;
+            }
+
+            let router_ptr = Box::into_raw(Box::new(CallbackRouter {
+                api: api.clone(),
+                tx: msg_tx,
+                active_calls: Vec::new(),
+            }));
+
+            if let Ok(mut guard) = state_thread.lock() {
+                guard.ctx = Some(SendPtr(ctx));
+                guard.mloop = Some(SendPtr(mloop));
+                guard.ls_handle = Some(SendPtr(handle));
+                guard.callback_ctx = router_ptr as *mut c_void;
+            }
+
+            let _ = ready_tx.send(Ok(shape.to_string()));
+
+            // SAFETY: Runs until `g_main_loop_quit` on shutdown; frees router/calls after `LSUnregister`.
+            unsafe {
+                (api.g_main_loop_run)(mloop);
+                (api.ls_error_init)(&mut lserr);
+                let _ = (api.ls_unregister)(handle, &mut lserr);
+                (api.ls_error_free)(&mut lserr);
+                (api.g_main_loop_unref)(mloop);
+                (api.g_main_context_unref)(ctx);
+                drop(Box::from_raw(router_ptr));
+            }
+        });
+
+        let shape = ready_rx
+            .recv()
+            .map_err(|_| "Luna worker thread exited prematurely".to_string())??;
+
+        Ok((
+            Self {
+                registration_shape: shape,
+                state,
+                worker: Some(worker),
+            },
+            msg_rx,
+        ))
+    }
+
+    pub fn registration_shape(&self) -> &str {
+        &self.registration_shape
+    }
+
+    /// Enqueues a single-reply Luna Bus call (`LSCallOneReply`).
+    pub fn call_once(&self, uri: &str, payload: &str) -> Result<(), String> {
+        self.enqueue(BusOp::Call {
+            uri: uri.to_string(),
+            payload: payload.to_string(),
+            subscribe: false,
+        })
+    }
+
+    /// Enqueues a persistent subscription call (`LSCall`).
+    pub fn subscribe(&self, uri: &str, payload: &str) -> Result<(), String> {
+        self.enqueue(BusOp::Call {
+            uri: uri.to_string(),
+            payload: payload.to_string(),
+            subscribe: true,
+        })
+    }
+
+    fn enqueue(&self, op: BusOp) -> Result<(), String> {
+        let (api, raw_ctx) = {
+            let mut guard = self
+                .state
+                .lock()
+                .map_err(|_| "Luna state lock poisoned".to_string())?;
+            let Some(ctx) = guard.ctx.as_ref().map(|p| p.0) else {
+                return Err("Luna bus is closed".to_string());
+            };
+            guard.queue.push_back(op);
+            (guard.api.clone(), ctx)
+        };
+
+        let raw_state = Arc::into_raw(self.state.clone()) as *mut c_void;
+        // SAFETY: `raw_ctx` stays valid until `worker.join()` in `Drop` after `guard.ctx` is cleared.
+        unsafe {
+            (api.g_main_context_invoke_full)(raw_ctx, 0, drain_ops_cb, raw_state, drop_arc_state);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for LunaClient {
+    fn drop(&mut self) {
+        let shutdown_ctx = if let Ok(mut guard) = self.state.lock() {
+            guard.queue.push_back(BusOp::Shutdown);
+            let ctx = guard.ctx.take();
+            ctx.map(|p| (guard.api.clone(), p.0))
+        } else {
+            None
+        };
+
+        if let Some((api, raw_ctx)) = shutdown_ctx {
+            let raw_state = Arc::into_raw(self.state.clone()) as *mut c_void;
+            // SAFETY: `raw_ctx` remains alive until `worker.join()` completes below.
+            unsafe {
+                (api.g_main_context_invoke_full)(
+                    raw_ctx,
+                    0,
+                    drain_ops_cb,
+                    raw_state,
+                    drop_arc_state,
+                );
+            }
+        }
+
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ls_error_has_expected_abi_field_count_and_probe_never_panics() {
+        let err = LsError::zeroed();
+        assert_eq!(err.error_code, 0);
+        let _ = probe_runtime();
+        let res = LunaClient::connect(Some("com.playfin.webos"));
+        if cfg!(target_os = "macos") {
+            assert!(res.is_err());
+        }
+    }
+}

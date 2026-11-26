@@ -1082,8 +1082,11 @@ version = "0.1.0"
 dependencies = [
  "femtovg",
  "glow",
+ "libc",
  "playfin_core",
  "sdl2-sys",
+ "serde",
+ "serde_json",
  "thiserror",
  "tokio",
 ]

@@ -90,6 +90,7 @@ ALLOWED_EXACT_DOMAINS = {
     "crates.io",
     "rust-lang.org",
     "sh.rustup.rs",
+    "nodejs.org",
     "jellyfin.org",
     "repo.jellyfin.org",
     "w3.org",

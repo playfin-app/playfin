@@ -39,10 +39,6 @@ type GDestroyNotify = extern "C" fn(*mut c_void);
 type LsErrorInitFn = unsafe extern "C" fn(*mut LsError) -> bool;
 type LsErrorFreeFn = unsafe extern "C" fn(*mut LsError);
 type LsRegisterFn = unsafe extern "C" fn(*const c_char, *mut *mut c_void, *mut LsError) -> bool;
-/// `LSRegisterApplicationService(name, app_id, sh, err)`: a handle tied to `app_id`. With a NULL
-/// name it does not clash with the `<app id>` service name that SDL-webOS already registers.
-type LsRegisterAppServiceFn =
-    unsafe extern "C" fn(*const c_char, *const c_char, *mut *mut c_void, *mut LsError) -> bool;
 type LsUnregisterFn = unsafe extern "C" fn(*mut c_void, *mut LsError) -> bool;
 type LsGmainContextAttachFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut LsError) -> bool;
 type LsCallFn = unsafe extern "C" fn(
@@ -90,7 +86,6 @@ struct LunaApi {
     ls_error_init: LsErrorInitFn,
     ls_error_free: LsErrorFreeFn,
     ls_register: LsRegisterFn,
-    ls_register_app_service: Option<LsRegisterAppServiceFn>,
     ls_unregister: LsUnregisterFn,
     ls_gmain_context_attach: LsGmainContextAttachFn,
     ls_call: LsCallFn,
@@ -141,11 +136,6 @@ impl LunaApi {
                 ls_error_init: resolve_fn::<LsErrorInitFn>(&ls2, c"LSErrorInit")?,
                 ls_error_free: resolve_fn::<LsErrorFreeFn>(&ls2, c"LSErrorFree")?,
                 ls_register: resolve_fn::<LsRegisterFn>(&ls2, c"LSRegister")?,
-                ls_register_app_service: resolve_fn::<LsRegisterAppServiceFn>(
-                    &ls2,
-                    c"LSRegisterApplicationService",
-                )
-                .ok(),
                 ls_unregister: resolve_fn::<LsUnregisterFn>(&ls2, c"LSUnregister")?,
                 ls_gmain_context_attach: resolve_fn::<LsGmainContextAttachFn>(
                     &ls2,
@@ -461,12 +451,11 @@ pub struct LunaClient {
 }
 
 impl LunaClient {
-    /// Connects to the Luna Bus (trying named `app_id` first, falling back to anonymous).
-    pub fn connect(app_id: Option<&str>) -> Result<(Self, mpsc::Receiver<LunaMessage>), String> {
+    /// Connects to the Luna Bus as `com.webos.media.client.playfin.<pid>`, falling back to anonymous.
+    pub fn connect() -> Result<(Self, mpsc::Receiver<LunaMessage>), String> {
         let api = Arc::new(LunaApi::load()?);
         let (msg_tx, msg_rx) = mpsc::channel();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<String, String>>();
-        let app_id_owned = app_id.map(str::to_string);
 
         let state = Arc::new(Mutex::new(BusWorkerState {
             api: api.clone(),
@@ -493,32 +482,26 @@ impl LunaClient {
 
             let mut handle: *mut c_void = null_mut();
             let mut shape = "anon";
-            let app_id_c = app_id_owned.as_deref().and_then(|s| CString::new(s).ok());
-            // SAFETY: Tries named, then app-service (NULL name + app id), then anonymous.
-            // Each failure is logged so the TV log shows why a fallback was used.
+            // `com.webos.media.client.*` is the name family the luna roles allow to call
+            // com.webos.media AND receive its replies (inbound). An anonymous client can send
+            // `load` but its reply is dropped ("Message status unknown"). The app id itself is
+            // already taken by SDL-webOS in this process, so it is not tried.
+            let media_client = CString::new(format!(
+                "com.webos.media.client.playfin.{}",
+                std::process::id()
+            ))
+            .ok();
+            // SAFETY: Tries the media-client name, then anonymous. A failure is logged.
             let registered = unsafe {
                 (api.ls_error_init)(&mut lserr);
                 let mut ok = false;
-                if let Some(id) = app_id_c.as_ref() {
-                    ok = (api.ls_register)(id.as_ptr(), &mut handle, &mut lserr);
+                if let Some(name) = media_client.as_ref() {
+                    ok = (api.ls_register)(name.as_ptr(), &mut handle, &mut lserr);
                     if ok {
-                        shape = "named";
+                        shape = "mediaClient";
                     } else {
                         let msg = api.take_ls_error(&mut lserr);
-                        eprintln!("[playfin_webos] LSRegister(app id) failed: {msg}");
-                        (api.ls_error_init)(&mut lserr);
-                    }
-                }
-                if !ok
-                    && let (Some(id), Some(register_app)) =
-                        (app_id_c.as_ref(), api.ls_register_app_service)
-                {
-                    ok = register_app(null(), id.as_ptr(), &mut handle, &mut lserr);
-                    if ok {
-                        shape = "appService";
-                    } else {
-                        let msg = api.take_ls_error(&mut lserr);
-                        eprintln!("[playfin_webos] LSRegisterApplicationService failed: {msg}");
+                        eprintln!("[playfin_webos] LSRegister(media client) failed: {msg}");
                         (api.ls_error_init)(&mut lserr);
                     }
                 }
@@ -703,7 +686,7 @@ mod tests {
         let err = LsError::zeroed();
         assert_eq!(err.error_code, 0);
         let _ = probe_runtime();
-        let res = LunaClient::connect(Some("com.playfin.webos"));
+        let res = LunaClient::connect();
         if cfg!(target_os = "macos") {
             assert!(res.is_err());
         }

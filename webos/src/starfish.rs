@@ -205,7 +205,7 @@ impl StarfishController {
         self.unload();
 
         if self.luna.is_none() {
-            match LunaClient::connect(Some(&self.app_id)) {
+            match LunaClient::connect() {
                 Ok((client, rx)) => {
                     self.status.last_event =
                         format!("LS2 connected ({})", client.registration_shape());

@@ -11,10 +11,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     build-essential \
     libclang-dev \
-    nodejs \
-    npm \
     xz-utils \
-    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/lib/apt/lists/*
+
+# ares-package (@webos-tools/cli) needs Node.js >= 20; Ubuntu 24.04 ships 18. Install the
+# official Node 22 build for the host arch, checked against nodejs.org's SHASUMS256.txt.
+RUN NODE_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo arm64 || echo x64) \
+    && BASE=https://nodejs.org/dist/latest-v22.x \
+    && curl -fsSL --retry 3 -o /tmp/SHASUMS256.txt "$BASE/SHASUMS256.txt" \
+    && FILE=$(grep -o "node-v22[0-9.]*-linux-${NODE_ARCH}\.tar\.xz" /tmp/SHASUMS256.txt | head -1) \
+    && curl -fsSL --retry 3 -o "/tmp/$FILE" "$BASE/$FILE" \
+    && (cd /tmp && grep " $FILE\$" SHASUMS256.txt | sha256sum -c -) \
+    && tar -xJf "/tmp/$FILE" --strip-components=1 -C /usr/local \
+    && rm -f "/tmp/$FILE" /tmp/SHASUMS256.txt \
+    && node --version \
     && npm install -g @webos-tools/cli@3.2.6
 
 # Rust toolchain + armv7 softfp target matching openlgtv/buildroot-nc4

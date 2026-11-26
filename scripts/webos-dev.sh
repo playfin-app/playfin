@@ -3,12 +3,14 @@ set -euo pipefail
 
 # Dev loop for the LG TV, run from the Mac (no copy-paste into webOS Dev Manager).
 #
+#   ./scripts/webos-dev.sh build     build the .ipk on this Mac (Docker / OrbStack, no push needed)
 #   ./scripts/webos-dev.sh fetch     wait for the CI build of HEAD and download its .ipk
 #   ./scripts/webos-dev.sh install   install the downloaded .ipk on the TV
 #   ./scripts/webos-dev.sh launch    (re)start Playfin with the params in webos/dev-params.json
 #   ./scripts/webos-dev.sh logs      print the app log from the TV (add -f to follow it)
 #   ./scripts/webos-dev.sh close     close Playfin on the TV
-#   ./scripts/webos-dev.sh all       fetch + install + launch + logs
+#   ./scripts/webos-dev.sh dev       build + install + launch + logs   (local, fastest)
+#   ./scripts/webos-dev.sh all       fetch + install + launch + logs   (from CI)
 #
 # Needs: gh (signed in), ares (@webos-tools/cli) with a working device, see TV_DEVICE.
 
@@ -51,6 +53,25 @@ fetch() {
     ls "$IPK_DIR"/*.ipk
 }
 
+build_local() {
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        echo "ERROR: Docker is not running. Open OrbStack (or Docker Desktop) first." >&2
+        exit 1
+    fi
+    # The image only holds the toolchain (no COPY), so build it without a context: sending
+    # webos/target to the daemon would be slow. Cached after the first run.
+    echo "▶ Preparing the webOS toolchain image"
+    docker build -q -t playfin-webos-sdk - < "$ROOT/webos/Dockerfile" >/dev/null
+
+    echo "▶ Building the .ipk locally"
+    rm -rf "$IPK_DIR"
+    docker run --rm \
+        -v "$ROOT":/workspace \
+        -v playfin-cargo-registry:/usr/local/cargo/registry \
+        -w /workspace \
+        playfin-webos-sdk ./scripts/package-webos-ipk.sh
+}
+
 install_ipk() {
     local ipk
     ipk="$(ls "$IPK_DIR"/*.ipk 2>/dev/null | head -1 || true)"
@@ -88,11 +109,19 @@ logs() {
 }
 
 case "${1:-}" in
+    build) build_local ;;
     fetch) fetch ;;
     install) install_ipk ;;
     launch) launch ;;
     logs) logs "${2:-}" ;;
     close) close_app ;;
+    dev)
+        build_local
+        install_ipk
+        launch
+        sleep 5
+        logs
+        ;;
     all)
         fetch
         install_ipk
@@ -101,7 +130,7 @@ case "${1:-}" in
         logs
         ;;
     *)
-        sed -n '4,12p' "$0"
+        sed -n '4,14p' "$0"
         exit 1
         ;;
 esac

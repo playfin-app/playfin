@@ -147,6 +147,26 @@ pub fn build_load_payload(
     (effective_uri, body)
 }
 
+/// Places the video plane and logs the outcome (the TV log is the only way to see it).
+fn log_place(win: &ExportedVideoWindow, video_w: i32, video_h: i32) {
+    match win.place(video_w, video_h) {
+        Ok((src, dst)) => eprintln!(
+            "[playfin_webos] video plane {}: src={}x{} dst=({},{}) {}x{}",
+            win.window_id(),
+            src.w,
+            src.h,
+            dst.x,
+            dst.y,
+            dst.w,
+            dst.h
+        ),
+        Err(err) => eprintln!(
+            "[playfin_webos] video plane {} place failed: {err}",
+            win.window_id()
+        ),
+    }
+}
+
 /// Drives LG webOS `com.webos.media` + `ExportedVideoWindow` completely from pure Rust.
 pub struct StarfishController {
     app_id: String,
@@ -224,7 +244,7 @@ impl StarfishController {
             match ExportedVideoWindow::create(1920, 1080) {
                 Ok(win) => {
                     let (pw, ph) = win.panel_resolution();
-                    let _ = win.place(pw, ph);
+                    log_place(&win, pw, ph);
                     self.status.window_id = Some(win.window_id().to_string());
                     self.window = Some(win);
                 }
@@ -455,7 +475,7 @@ impl StarfishController {
             let hdr = vi.get("hdrType").and_then(Value::as_str).unwrap_or("sdr");
             if w > 0 && h > 0 {
                 if let Some(win) = &self.window {
-                    let _ = win.place(w, h);
+                    log_place(win, w, h);
                 }
                 self.saw_video_info = true;
                 self.status.video_info = format!("{w}x{h} {hdr}");
@@ -484,7 +504,7 @@ impl StarfishController {
             if !self.saw_video_info {
                 if let Some(win) = &self.window {
                     let (pw, ph) = win.panel_resolution();
-                    let _ = win.place(pw, ph);
+                    log_place(win, pw, ph);
                     self.status.video_info = format!("videoInfo missing ({pw}x{ph})");
                 } else {
                     self.status.video_info = "videoInfo missing".to_string();

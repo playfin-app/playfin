@@ -48,10 +48,30 @@ fn spawn_https_probe() -> Result<(tokio::runtime::Runtime, mpsc::Receiver<String
     Ok((rt, rx))
 }
 
+/// On the TV nobody sees stderr, so every `eprintln!` goes to `<data_dir>/playfin.log`.
+/// The dev tooling reads that file over SSH (`scripts/webos-dev.sh logs`).
+/// The previous launch is kept as `playfin.prev.log`.
+fn redirect_stderr_to_log(data_dir: &std::path::Path) {
+    use std::os::fd::AsRawFd;
+
+    let log_path = data_dir.join("playfin.log");
+    let _ = std::fs::rename(&log_path, data_dir.join("playfin.prev.log"));
+    let Ok(file) = std::fs::File::create(&log_path) else {
+        return;
+    };
+    // SAFETY: dup2 only swaps file descriptor 2 for our open log file; `file` stays valid during the call.
+    unsafe {
+        libc::dup2(file.as_raw_fd(), libc::STDERR_FILENO);
+    }
+}
+
 fn init_context_and_config() -> (Gate1Diagnostics, SpikeConfig, String) {
     let raw_args: Vec<String> = std::env::args().collect();
     let ctx = LaunchContext::from_env(raw_args.clone());
     let storage = resolve_persistent_data_dir(&ctx);
+    if cfg!(feature = "webos") {
+        redirect_stderr_to_log(&storage.data_dir);
+    }
     let (spike_cfg, cfg_source) =
         load_spike_config(&storage.data_dir, raw_args.get(1).map(String::as_str));
 
@@ -100,6 +120,7 @@ fn handle_spike_trigger(
     starfish: &mut StarfishController,
     dts_toggle: &mut bool,
 ) {
+    eprintln!("[playfin_webos] trigger action #{}", idx + 1);
     let key = cfg.api_key.as_deref();
     let mode = app.diagnostics.auth_mode;
     match idx {
@@ -188,6 +209,7 @@ fn run() -> Result<(), WebosError> {
     let mut fps_window_start = Instant::now();
     let mut fps_frames: u32 = 0;
     let mut dts_toggle = false;
+    let mut last_logged_event = String::new();
 
     let max_frames = std::env::var("PLAYFIN_WEBOS_SMOKE_FRAMES")
         .ok()
@@ -255,6 +277,20 @@ fn run() -> Result<(), WebosError> {
             }
         }
 
+        if starfish.status.last_event != last_logged_event {
+            last_logged_event = starfish.status.last_event.clone();
+            eprintln!(
+                "[playfin_webos] starfish: {} | state={} pos={}/{} ms video={} audio={} track={}/{}",
+                last_logged_event,
+                starfish.status.playback_state,
+                starfish.status.position_ms,
+                starfish.status.duration_ms,
+                starfish.status.video_info,
+                starfish.status.audio_info,
+                starfish.status.current_audio_track,
+                starfish.status.audio_track_count,
+            );
+        }
         app.diagnostics.starfish = starfish.status.clone();
         app.tick(dt);
         let (w, h) = window.drawable_size();

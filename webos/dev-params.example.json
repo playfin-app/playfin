@@ -1,0 +1,6 @@
+{
+  "mkv_url": "http://JELLYFIN_HOST:8096/Videos/ITEM_ID/stream?static=true&MediaSourceId=ITEM_ID",
+  "hls_url": "http://JELLYFIN_HOST:8096/Videos/ITEM_ID/master.m3u8?MediaSourceId=ITEM_ID&VideoCodec=hevc,h264&AudioCodec=aac,ac3,eac3&SegmentContainer=ts&CopyTimestamps=True&ApiKey=API_KEY&TranscodeReasons=AudioCodecNotSupported",
+  "api_key": "API_KEY",
+  "app_id": "com.playfin.webos"
+}

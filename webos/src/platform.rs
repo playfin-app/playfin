@@ -20,7 +20,16 @@ impl LaunchContext {
         let mut iter = args.into_iter();
         let _program = iter.next();
         let argv1_preview = match iter.next() {
-            Some(arg) if !arg.trim().is_empty() => truncate_preview(arg.trim(), 72),
+            Some(arg) if !arg.trim().is_empty() => {
+                let trimmed = arg.trim();
+                let lower = trimmed.to_ascii_lowercase();
+                if lower.contains("api_key") || lower.contains("token") || lower.contains("secret")
+                {
+                    "SpikeConfig JSON (redacted)".to_string()
+                } else {
+                    truncate_preview(trimmed, 72)
+                }
+            }
             _ => "none".to_string(),
         };
         Self {
@@ -139,6 +148,14 @@ mod tests {
         ];
         let ctx = LaunchContext::from_env(args);
         assert!(ctx.argv1_preview.contains("@system_native_app"));
+
+        let secret_args = vec![
+            "playfin_webos".to_string(),
+            r#"{"api_key":"super-secret","mkv_url":"http://198.51.100.10:8096/v.mkv"}"#.to_string(),
+        ];
+        let secret_ctx = LaunchContext::from_env(secret_args);
+        assert!(!secret_ctx.argv1_preview.contains("super-secret"));
+        assert!(secret_ctx.argv1_preview.contains("redacted"));
     }
 
     #[test]

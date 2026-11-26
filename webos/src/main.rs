@@ -149,13 +149,15 @@ fn handle_spike_trigger(
 fn run() -> Result<(), WebosError> {
     let (diagnostics, spike_cfg, app_id) = init_context_and_config();
     let (_rt, https_rx) = spawn_https_probe()?;
-    let mut starfish = StarfishController::new(app_id);
 
     if cfg!(feature = "webos") {
         set_hint("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true");
     }
 
+    // Declare `sdl` strictly before `starfish` so `StarfishController` (owning `ExportedVideoWindow`)
+    // drops before `SdlContext::drop` calls `SDL_Quit()`.
     let sdl = SdlContext::init_video().map_err(WebosError::Sdl)?;
+    let mut starfish = StarfishController::new(app_id);
     let gl_spec = GlSurfaceSpec::default();
     let (init_w, init_h) = if cfg!(feature = "webos") {
         (1920, 1080)

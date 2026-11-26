@@ -32,11 +32,11 @@ pub struct StarfishStatus {
 }
 
 /// Checks if `libplayerAPIs.so` is readable in the sandbox and which Starfish symbols it exports.
-/// Does NOT call the C++ constructor so firmwares checking process role cannot terminate the app.
+/// Note: `dlopen` still runs ELF library initializers if present, so run this only on explicit probe.
 pub fn probe_inprocess_starfish_symbols() -> String {
     #[cfg(unix)]
     {
-        // SAFETY: `RTLD_LAZY` inspects symbol table without invoking class constructors.
+        // SAFETY: `RTLD_LAZY` avoids eager PLT binding; closed immediately after `dlsym` inspection.
         let handle = unsafe { libc::dlopen(c"libplayerAPIs.so.1".as_ptr(), libc::RTLD_LAZY) };
         let handle = if handle.is_null() {
             // SAFETY: Fallback unversioned SONAME probe.
@@ -77,15 +77,19 @@ pub fn probe_inprocess_starfish_symbols() -> String {
     }
 }
 
-/// Runs non-destructive runtime probes for Gate 1 / Spike 0.4 (`LS2`, `SDL_webOS`, `libplayerAPIs`).
-pub fn collect_runtime_probe_summary() -> String {
+/// Runs startup-safe runtime probes (`LS2`, `SDL_webOS`). Set `include_libplayer` on explicit probe.
+pub fn collect_runtime_probe_summary(include_libplayer: bool) -> String {
     let ls2 = match probe_luna_runtime() {
         Ok(s) => s,
         Err(e) => e,
     };
     let win = probe_exported_window().detail;
-    let smp = probe_inprocess_starfish_symbols();
-    format!("{ls2} | {win} | {smp}")
+    if include_libplayer {
+        let smp = probe_inprocess_starfish_symbols();
+        format!("{ls2} | {win} | {smp}")
+    } else {
+        format!("{ls2} | {win} | libplayerAPIs: press 1.Probe")
+    }
 }
 
 /// Appends `api_key` cleanly to `url` only when `QueryApiKey` mode is selected.
@@ -149,20 +153,26 @@ pub struct StarfishController {
     luna: Option<LunaClient>,
     rx: Option<mpsc::Receiver<LunaMessage>>,
     window: Option<ExportedVideoWindow>,
+    load_gen: u64,
+    pending_unload: bool,
     subscribed_media_id: Option<String>,
+    pending_audio_track: Option<usize>,
     pub status: StarfishStatus,
 }
 
 impl StarfishController {
     pub fn new(app_id: String) -> Self {
-        let probe = collect_runtime_probe_summary();
+        let probe = collect_runtime_probe_summary(false);
         eprintln!("[playfin_webos] runtime probe: {probe}");
         Self {
             app_id,
             luna: None,
             rx: None,
             window: None,
+            load_gen: 0,
+            pending_unload: false,
             subscribed_media_id: None,
+            pending_audio_track: None,
             status: StarfishStatus {
                 runtime_probe: probe,
                 playback_state: "Idle".to_string(),
@@ -175,7 +185,7 @@ impl StarfishController {
     }
 
     pub fn refresh_probe(&mut self) {
-        self.status.runtime_probe = collect_runtime_probe_summary();
+        self.status.runtime_probe = collect_runtime_probe_summary(true);
         eprintln!(
             "[playfin_webos] runtime probe: {}",
             self.status.runtime_probe
@@ -223,6 +233,10 @@ impl StarfishController {
             }
         }
 
+        self.load_gen = self.load_gen.saturating_add(1);
+        self.pending_unload = false;
+        self.pending_audio_track = None;
+
         let window_id = self
             .window
             .as_ref()
@@ -232,12 +246,14 @@ impl StarfishController {
             build_load_payload(url, kind, &window_id, &self.app_id, api_key, auth_mode);
         let safe_url = redact_url_for_log(url);
         eprintln!(
-            "[playfin_webos] com.webos.media/load kind={kind:?} auth={} uri={safe_url} window={window_id}",
+            "[playfin_webos] com.webos.media/load gen={} kind={kind:?} auth={} uri={safe_url} window={window_id}",
+            self.load_gen,
             auth_mode.label()
         );
 
         if let Some(client) = &self.luna
-            && let Err(err) = client.call_once("luna://com.webos.media/load", &load_json)
+            && let Err(err) =
+                client.call_once("luna://com.webos.media/load", &load_json, self.load_gen)
         {
             self.status.playback_state = format!("Load call failed: {err}");
             self.status.last_event = self.status.playback_state.clone();
@@ -245,6 +261,8 @@ impl StarfishController {
         }
         self.status.playback_state = format!("Loading ({:?}, {})", kind, auth_mode.label());
         self.status.media_id = None;
+        self.status.position_ms = 0;
+        self.status.duration_ms = 0;
         self.subscribed_media_id = None;
     }
 
@@ -261,7 +279,7 @@ impl StarfishController {
         };
         if let Some(client) = &self.luna {
             let payload = json!({ "mediaId": id }).to_string();
-            let _ = client.call_once(method, &payload);
+            let _ = client.call_once(method, &payload, self.load_gen);
             self.status.last_event = format!("Sent {method}");
         }
     }
@@ -276,7 +294,7 @@ impl StarfishController {
             .max(0) as u64;
         if let Some(client) = &self.luna {
             let payload = json!({ "mediaId": id, "position": target }).to_string();
-            let _ = client.call_once("luna://com.webos.media/seek", &payload);
+            let _ = client.call_once("luna://com.webos.media/seek", &payload, self.load_gen);
             self.status.last_event = format!("Seek -> {target} ms");
         }
     }
@@ -286,22 +304,44 @@ impl StarfishController {
             self.status.last_event = "No active mediaId".to_string();
             return;
         };
-        let max_tracks = self.status.audio_track_count.max(2);
-        let next = (self.status.current_audio_track + 1) % max_tracks;
+        if self.status.audio_track_count <= 1 {
+            self.status.last_event = format!(
+                "Only {} audio track reported",
+                self.status.audio_track_count.max(1)
+            );
+            return;
+        }
+        let next = (self.status.current_audio_track + 1) % self.status.audio_track_count;
         if let Some(client) = &self.luna {
             let payload = json!({ "mediaId": id, "type": "audio", "index": next }).to_string();
-            let _ = client.call_once("luna://com.webos.media/selectTrack", &payload);
-            self.status.current_audio_track = next;
-            self.status.last_event = format!("selectTrack audio={next}");
+            let _ = client.call_once(
+                "luna://com.webos.media/selectTrack",
+                &payload,
+                self.load_gen,
+            );
+            self.pending_audio_track = Some(next);
+            self.status.last_event = format!("Requested selectTrack audio={next}");
         }
     }
 
     pub fn unload(&mut self) {
-        if let (Some(client), Some(id)) = (&self.luna, self.status.media_id.take()) {
-            let payload = json!({ "mediaId": id }).to_string();
-            let _ = client.call_once("luna://com.webos.media/unload", &payload);
+        if self.status.playback_state.starts_with("Loading") && self.status.media_id.is_none() {
+            self.pending_unload = true;
+        }
+        self.load_gen = self.load_gen.saturating_add(1);
+        if let Some(client) = &self.luna {
+            let _ = client.cancel_subscriptions();
+            if let Some(id) = self.status.media_id.take() {
+                let payload = json!({ "mediaId": id }).to_string();
+                let _ = client.call_once("luna://com.webos.media/unload", &payload, self.load_gen);
+            }
+        } else {
+            self.status.media_id = None;
         }
         self.subscribed_media_id = None;
+        self.pending_audio_track = None;
+        self.status.position_ms = 0;
+        self.status.duration_ms = 0;
         if self.status.playback_state != "Idle" {
             self.status.playback_state = "Idle".to_string();
         }
@@ -321,6 +361,28 @@ impl StarfishController {
     }
 
     fn apply_luna_message(&mut self, msg: &LunaMessage) {
+        if msg.tag != 0 && msg.tag != self.load_gen {
+            // If an obsolete in-flight `load` returns a late `mediaId`, unload it immediately so
+            // no orphaned pipeline keeps decoding in `umediaserver`.
+            if msg.uri.ends_with("/load")
+                && let Ok(val) = serde_json::from_str::<Value>(&msg.payload)
+                && let Some(stale_id) = val.get("mediaId").and_then(Value::as_str)
+                && let Some(client) = &self.luna
+            {
+                let _ = client.call_once(
+                    "luna://com.webos.media/unload",
+                    &json!({ "mediaId": stale_id }).to_string(),
+                    self.load_gen,
+                );
+            }
+            return;
+        }
+
+        if msg.uri.ends_with("/unload") {
+            self.status.last_event = "unloaded".to_string();
+            return;
+        }
+
         let Ok(val) = serde_json::from_str::<Value>(&msg.payload) else {
             self.status.last_event = format!("non-JSON from {}", msg.uri);
             return;
@@ -328,24 +390,49 @@ impl StarfishController {
 
         if val.get("returnValue").and_then(Value::as_bool) == Some(false) {
             let code = val.get("errorCode").and_then(Value::as_i64).unwrap_or(-1);
-            let text = val
+            let raw_text = val
                 .get("errorText")
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
-            self.status.playback_state = format!("Error {code}: {text}");
-            self.status.last_event = self.status.playback_state.clone();
+            let safe_text = redact_url_for_log(raw_text);
+            let formatted = format!("Error {code}: {safe_text}");
+            self.status.last_event = formatted.clone();
+            if msg.uri.ends_with("/load") || msg.uri.ends_with("/subscribe") {
+                self.status.playback_state = formatted;
+            }
             return;
         }
 
         if let Some(id) = val.get("mediaId").and_then(Value::as_str) {
-            self.status.media_id = Some(id.to_string());
-            if self.subscribed_media_id.as_deref() != Some(id) {
-                self.subscribed_media_id = Some(id.to_string());
-                if let Some(client) = &self.luna {
-                    let sub_payload = json!({ "mediaId": id, "subscribe": true }).to_string();
-                    let _ = client.subscribe("luna://com.webos.media/subscribe", &sub_payload);
+            if msg.uri.ends_with("/load") {
+                if self.pending_unload {
+                    self.pending_unload = false;
+                    if let Some(client) = &self.luna {
+                        let _ = client.call_once(
+                            "luna://com.webos.media/unload",
+                            &json!({ "mediaId": id }).to_string(),
+                            self.load_gen,
+                        );
+                    }
+                    return;
                 }
+                self.status.media_id = Some(id.to_string());
+                if self.subscribed_media_id.as_deref() != Some(id) {
+                    self.subscribed_media_id = Some(id.to_string());
+                    if let Some(client) = &self.luna {
+                        let sub_payload = json!({ "mediaId": id, "subscribe": true }).to_string();
+                        let _ = client.subscribe(
+                            "luna://com.webos.media/subscribe",
+                            &sub_payload,
+                            self.load_gen,
+                        );
+                    }
+                }
+            } else if self.status.media_id.as_deref() != Some(id) {
+                return;
             }
+        } else if msg.is_subscription && self.status.media_id.is_none() {
+            return;
         }
 
         if let Some(ct) = val.get("currentTime").and_then(Value::as_object)
@@ -393,6 +480,7 @@ impl StarfishController {
                 let _ = client.call_once(
                     "luna://com.webos.media/play",
                     &json!({ "mediaId": id }).to_string(),
+                    self.load_gen,
                 );
             }
         } else if val.get("playing").is_some() {
@@ -404,6 +492,9 @@ impl StarfishController {
         } else if val.get("seekDone").is_some() {
             self.status.last_event = format!("seekDone @ {} ms", self.status.position_ms);
         } else if val.get("trackSelected").is_some() {
+            if let Some(next) = self.pending_audio_track.take() {
+                self.status.current_audio_track = next;
+            }
             self.status.last_event = "trackSelected".to_string();
         } else if val.get("endOfStream").is_some() {
             self.status.playback_state = "Ended".to_string();
@@ -450,16 +541,24 @@ mod tests {
     }
 
     #[test]
-    fn parses_luna_media_events_and_error_replies() {
+    fn ignores_stale_generations_and_redacts_errors() {
         let mut ctrl = StarfishController::new("com.playfin.webos".to_string());
+        ctrl.apply_luna_message(&LunaMessage {
+            uri: "luna://com.webos.media/load".into(),
+            payload: r#"{"mediaId":"_M1"}"#.into(),
+            is_subscription: false,
+            tag: 0,
+        });
+        assert_eq!(ctrl.status.media_id.as_deref(), Some("_M1"));
+
         ctrl.apply_luna_message(&LunaMessage {
             uri: "luna://com.webos.media/subscribe".into(),
             payload:
                 r#"{"videoInfo":{"width":3840,"height":2160,"hdrType":"hdr10"},"mediaId":"_M1"}"#
                     .into(),
             is_subscription: true,
+            tag: 0,
         });
-        assert_eq!(ctrl.status.media_id.as_deref(), Some("_M1"));
         assert_eq!(ctrl.status.video_info, "3840x2160 hdr10");
 
         ctrl.apply_luna_message(&LunaMessage {
@@ -467,21 +566,43 @@ mod tests {
             payload: r#"{"sourceInfo":{"programInfo":[{"duration":125000,"numAudioTracks":3}]}}"#
                 .into(),
             is_subscription: true,
+            tag: 0,
         });
         assert_eq!(ctrl.status.duration_ms, 125000);
         assert_eq!(ctrl.status.audio_track_count, 3);
 
+        // Stale event from another mediaId or older load generation must be ignored.
+        ctrl.load_gen = 5;
+        ctrl.apply_luna_message(&LunaMessage {
+            uri: "luna://com.webos.media/subscribe".into(),
+            payload: r#"{"endOfStream":{},"mediaId":"_M1"}"#.into(),
+            is_subscription: true,
+            tag: 2,
+        });
+        assert_ne!(ctrl.status.playback_state, "Ended");
+
+        // Error from selectTrack preserves playback_state and redacts any embedded api_key.
+        ctrl.status.playback_state = "Playing".to_string();
         ctrl.apply_luna_message(&LunaMessage {
             uri: "luna://com.webos.media/selectTrack".into(),
-            payload:
-                r#"{"returnValue":false,"errorCode":200,"errorText":"Audio Codec Not Supported"}"#
-                    .into(),
+            payload: r#"{"returnValue":false,"errorCode":200,"errorText":"failed for http://198.51.100.10:8096/v.mkv?api_key=leak123"}"#.into(),
             is_subscription: false,
+            tag: 5,
         });
-        assert!(
-            ctrl.status
-                .playback_state
-                .contains("Audio Codec Not Supported")
-        );
+        assert_eq!(ctrl.status.playback_state, "Playing");
+        assert!(!ctrl.status.last_event.contains("leak123"));
+        assert!(ctrl.status.last_event.contains("REDACTED"));
+
+        // Unload reply echoes `mediaId`; must NOT re-populate `media_id` or resubscribe.
+        ctrl.unload();
+        let unload_tag = ctrl.load_gen;
+        ctrl.apply_luna_message(&LunaMessage {
+            uri: "luna://com.webos.media/unload".into(),
+            payload: r#"{"returnValue":true,"errorCode":0,"mediaId":"_M1"}"#.into(),
+            is_subscription: false,
+            tag: unload_tag,
+        });
+        assert_eq!(ctrl.status.media_id, None);
+        assert_eq!(ctrl.status.last_event, "unloaded");
     }
 }

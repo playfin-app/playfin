@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn redacts_api_key_and_tokens_from_logged_urls() {
-        let raw = "https://jellyfin.example:8096/Videos/abc/stream.mkv?static=true&api_key=secret123&X-Emby-Token=tok";
+        let raw = "https://jellyfin.example.com:8096/Videos/abc/stream.mkv?static=true&api_key=secret123&X-Emby-Token=tok";
         let redacted = redact_url_for_log(raw);
         assert!(!redacted.contains("secret123"));
         assert!(!redacted.contains("tok"));

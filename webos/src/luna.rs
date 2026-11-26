@@ -32,15 +32,15 @@ impl LsError {
     }
 }
 
-type LsFilterFunc = extern "C" fn(*mut c_void, *mut c_void, *mut c_void) -> c_int;
+type LsFilterFunc = extern "C" fn(*mut c_void, *mut c_void, *mut c_void) -> bool;
 type GSourceFunc = extern "C" fn(*mut c_void) -> c_int;
 type GDestroyNotify = extern "C" fn(*mut c_void);
 
-type LsErrorInitFn = unsafe extern "C" fn(*mut LsError) -> c_int;
+type LsErrorInitFn = unsafe extern "C" fn(*mut LsError) -> bool;
 type LsErrorFreeFn = unsafe extern "C" fn(*mut LsError);
-type LsRegisterFn = unsafe extern "C" fn(*const c_char, *mut *mut c_void, *mut LsError) -> c_int;
-type LsUnregisterFn = unsafe extern "C" fn(*mut c_void, *mut LsError) -> c_int;
-type LsGmainContextAttachFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut LsError) -> c_int;
+type LsRegisterFn = unsafe extern "C" fn(*const c_char, *mut *mut c_void, *mut LsError) -> bool;
+type LsUnregisterFn = unsafe extern "C" fn(*mut c_void, *mut LsError) -> bool;
+type LsGmainContextAttachFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut LsError) -> bool;
 type LsCallFn = unsafe extern "C" fn(
     *mut c_void,
     *const c_char,
@@ -49,9 +49,9 @@ type LsCallFn = unsafe extern "C" fn(
     *mut c_void,
     *mut c_ulong,
     *mut LsError,
-) -> c_int;
+) -> bool;
 type LsCallOneReplyFn = LsCallFn;
-type LsCallCancelFn = unsafe extern "C" fn(*mut c_void, c_ulong, *mut LsError) -> c_int;
+type LsCallCancelFn = unsafe extern "C" fn(*mut c_void, c_ulong, *mut LsError) -> bool;
 type LsMessageGetPayloadFn = unsafe extern "C" fn(*mut c_void) -> *const c_char;
 
 type GMainContextNewFn = unsafe extern "C" fn() -> *mut c_void;
@@ -196,6 +196,7 @@ pub struct LunaMessage {
     pub uri: String,
     pub payload: String,
     pub is_subscription: bool,
+    pub tag: u64,
 }
 
 enum BusOp {
@@ -203,7 +204,9 @@ enum BusOp {
         uri: String,
         payload: String,
         subscribe: bool,
+        tag: u64,
     },
+    CancelSubscriptions,
     Shutdown,
 }
 
@@ -226,7 +229,7 @@ struct OwnedCallCtx(*mut CallUserCtx);
 impl Drop for OwnedCallCtx {
     fn drop(&mut self) {
         if !self.0.is_null() {
-            // SAFETY: Reclaimed only after `LSUnregister` has completed on the GLib thread.
+            // SAFETY: Reclaimed only on the GLib thread after unregister/cancel or one-shot reply.
             unsafe {
                 drop(Box::from_raw(self.0));
             }
@@ -237,46 +240,87 @@ impl Drop for OwnedCallCtx {
 struct CallbackRouter {
     api: Arc<LunaApi>,
     tx: mpsc::Sender<LunaMessage>,
-    active_calls: Vec<OwnedCallCtx>,
+    next_id: u64,
+    subscriptions: Vec<(c_ulong, OwnedCallCtx)>,
+    one_shots: Vec<(u64, OwnedCallCtx)>,
 }
 
 struct CallUserCtx {
-    router: *const CallbackRouter,
+    router: *mut CallbackRouter,
+    id: u64,
     uri: String,
     subscribe: bool,
+    tag: u64,
 }
 
-extern "C" fn luna_msg_cb(_sh: *mut c_void, msg: *mut c_void, user_data: *mut c_void) -> c_int {
+extern "C" fn luna_msg_cb(_sh: *mut c_void, msg: *mut c_void, user_data: *mut c_void) -> bool {
     if user_data.is_null() || msg.is_null() {
-        return 1;
+        return true;
     }
-    // SAFETY: `user_data` points to `CallUserCtx` owned by `CallbackRouter` until after `LSUnregister`.
-    let ctx = unsafe { &*(user_data as *const CallUserCtx) };
-    // SAFETY: `ctx.router` stays alive on GLib thread until after `LSUnregister` finishes.
-    let router = unsafe { &*ctx.router };
-    // SAFETY: `msg` is valid for the duration of this LS2 callback.
-    let payload_ptr = unsafe { (router.api.ls_message_get_payload)(msg) };
-    let payload = if payload_ptr.is_null() {
-        "{}".to_string()
-    } else {
-        // SAFETY: `LSMessageGetPayload` returns a NUL-terminated JSON string.
-        unsafe { CStr::from_ptr(payload_ptr) }
-            .to_string_lossy()
-            .into_owned()
+    let (router_ptr, ctx_id, uri, subscribe, tag, api, payload) = {
+        // SAFETY: `user_data` points to `CallUserCtx` owned by `CallbackRouter` until removed below.
+        let ctx = unsafe { &*(user_data as *const CallUserCtx) };
+        let router_ptr = ctx.router;
+        // SAFETY: `router_ptr` stays valid on GLib thread until after `LSUnregister` finishes.
+        let router = unsafe { &*router_ptr };
+        // SAFETY: `msg` is valid for the duration of this LS2 callback.
+        let payload_ptr = unsafe { (router.api.ls_message_get_payload)(msg) };
+        let payload = if payload_ptr.is_null() {
+            "{}".to_string()
+        } else {
+            // SAFETY: `LSMessageGetPayload` returns a NUL-terminated JSON string.
+            unsafe { CStr::from_ptr(payload_ptr) }
+                .to_string_lossy()
+                .into_owned()
+        };
+        (
+            router_ptr,
+            ctx.id,
+            ctx.uri.clone(),
+            ctx.subscribe,
+            ctx.tag,
+            router.api.clone(),
+            payload,
+        )
     };
-    let _ = router.tx.send(LunaMessage {
-        uri: ctx.uri.clone(),
-        payload,
-        is_subscription: ctx.subscribe,
-    });
-    1
+
+    // SAFETY: Exclusive GLib-thread access; borrow on `CallUserCtx` already ended above.
+    unsafe {
+        let _ = &api;
+        let _ = (*router_ptr).tx.send(LunaMessage {
+            uri,
+            payload,
+            is_subscription: subscribe,
+            tag,
+        });
+        if !subscribe {
+            (*router_ptr).one_shots.retain(|(id, _)| *id != ctx_id);
+        }
+    }
+    true
 }
 
 extern "C" fn drop_arc_state(data: *mut c_void) {
     if !data.is_null() {
-        // SAFETY: Balances `Arc::into_raw` in `LunaClient::enqueue_state`.
+        // SAFETY: Balances `Arc::into_raw` in `LunaClient::enqueue`.
         unsafe {
             drop(Arc::from_raw(data as *const Mutex<BusWorkerState>));
+        }
+    }
+}
+
+fn cancel_all_subscriptions(api: &LunaApi, handle: *mut c_void, router_ptr: *mut CallbackRouter) {
+    if handle.is_null() || router_ptr.is_null() {
+        return;
+    }
+    // SAFETY: Called exclusively on the GLib thread with valid `LSHandle` and `CallbackRouter`.
+    unsafe {
+        let mut lserr = LsError::zeroed();
+        for (token, ctx) in (*router_ptr).subscriptions.drain(..) {
+            (api.ls_error_init)(&mut lserr);
+            let _ = (api.ls_call_cancel)(handle, token, &mut lserr);
+            (api.ls_error_free)(&mut lserr);
+            drop(ctx);
         }
     }
 }
@@ -307,6 +351,7 @@ extern "C" fn drain_ops_cb(data: *mut c_void) -> c_int {
                 uri,
                 payload,
                 subscribe,
+                tag,
             } => {
                 if handle.is_null() || router_ptr.is_null() {
                     continue;
@@ -317,16 +362,18 @@ extern "C" fn drain_ops_cb(data: *mut c_void) -> c_int {
                 let Ok(c_payload) = CString::new(payload.as_str()) else {
                     continue;
                 };
+                // SAFETY: Exclusive GLib-thread access to `CallbackRouter`.
+                let call_id = unsafe {
+                    (*router_ptr).next_id += 1;
+                    (*router_ptr).next_id
+                };
                 let call_ctx = Box::into_raw(Box::new(CallUserCtx {
-                    router: router_ptr as *const CallbackRouter,
+                    router: router_ptr,
+                    id: call_id,
                     uri: uri.clone(),
                     subscribe,
+                    tag,
                 }));
-                // SAFETY: Only `drain_ops_cb` mutates `active_calls` (exclusively on the GLib thread),
-                // and `luna_msg_cb` only reads `CallbackRouter`'s immutable `api`/`tx` fields.
-                unsafe {
-                    (*router_ptr).active_calls.push(OwnedCallCtx(call_ctx));
-                }
 
                 let mut lserr = LsError::zeroed();
                 let mut token: c_ulong = 0;
@@ -354,20 +401,35 @@ extern "C" fn drain_ops_cb(data: *mut c_void) -> c_int {
                             &mut lserr,
                         )
                     };
-                    if ok == 0 {
+                    if !ok {
                         let msg = api.take_ls_error(&mut lserr);
+                        drop(OwnedCallCtx(call_ctx));
                         let _ = (*router_ptr).tx.send(LunaMessage {
                             uri,
                             payload: serde_json::json!({ "returnValue": false, "errorText": msg })
                                 .to_string(),
                             is_subscription: subscribe,
+                            tag,
                         });
                     } else {
                         (api.ls_error_free)(&mut lserr);
+                        if subscribe {
+                            (*router_ptr)
+                                .subscriptions
+                                .push((token, OwnedCallCtx(call_ctx)));
+                        } else {
+                            (*router_ptr)
+                                .one_shots
+                                .push((call_id, OwnedCallCtx(call_ctx)));
+                        }
                     }
                 }
             }
+            BusOp::CancelSubscriptions => {
+                cancel_all_subscriptions(&api, handle, router_ptr);
+            }
             BusOp::Shutdown => {
+                cancel_all_subscriptions(&api, handle, router_ptr);
                 if !mloop.is_null() {
                     // SAFETY: Called on GLib loop thread with active `GMainLoop`.
                     unsafe {
@@ -378,7 +440,6 @@ extern "C" fn drain_ops_cb(data: *mut c_void) -> c_int {
         }
     }
 
-    let _ = api.ls_call_cancel;
     0
 }
 
@@ -425,20 +486,20 @@ impl LunaClient {
             // SAFETY: Tries named registration first, then anonymous.
             let registered = unsafe {
                 (api.ls_error_init)(&mut lserr);
-                let mut ok = 0;
+                let mut ok = false;
                 if let Some(name) = app_id_owned.as_deref().and_then(|s| CString::new(s).ok()) {
                     ok = (api.ls_register)(name.as_ptr(), &mut handle, &mut lserr);
-                    if ok != 0 {
+                    if ok {
                         shape = "named";
                     } else {
                         let _ = api.take_ls_error(&mut lserr);
                         (api.ls_error_init)(&mut lserr);
                     }
                 }
-                if ok == 0 {
+                if !ok {
                     ok = (api.ls_register)(null(), &mut handle, &mut lserr);
                 }
-                if ok == 0 {
+                if !ok {
                     let msg = api.take_ls_error(&mut lserr);
                     let _ = ready_tx.send(Err(format!("LSRegister failed: {msg}")));
                     false
@@ -461,7 +522,7 @@ impl LunaClient {
             let attached = unsafe {
                 (api.ls_error_init)(&mut lserr);
                 let ok = (api.ls_gmain_context_attach)(handle, ctx, &mut lserr);
-                if ok == 0 {
+                if !ok {
                     let msg = api.take_ls_error(&mut lserr);
                     let _ = ready_tx.send(Err(format!("LSGmainContextAttach failed: {msg}")));
                     false
@@ -486,7 +547,9 @@ impl LunaClient {
             let router_ptr = Box::into_raw(Box::new(CallbackRouter {
                 api: api.clone(),
                 tx: msg_tx,
-                active_calls: Vec::new(),
+                next_id: 0,
+                subscriptions: Vec::new(),
+                one_shots: Vec::new(),
             }));
 
             if let Ok(mut guard) = state_thread.lock() {
@@ -528,22 +591,29 @@ impl LunaClient {
         &self.registration_shape
     }
 
-    /// Enqueues a single-reply Luna Bus call (`LSCallOneReply`).
-    pub fn call_once(&self, uri: &str, payload: &str) -> Result<(), String> {
+    /// Enqueues a single-reply Luna Bus call (`LSCallOneReply`) with a caller correlation tag.
+    pub fn call_once(&self, uri: &str, payload: &str, tag: u64) -> Result<(), String> {
         self.enqueue(BusOp::Call {
             uri: uri.to_string(),
             payload: payload.to_string(),
             subscribe: false,
+            tag,
         })
     }
 
-    /// Enqueues a persistent subscription call (`LSCall`).
-    pub fn subscribe(&self, uri: &str, payload: &str) -> Result<(), String> {
+    /// Enqueues a persistent subscription call (`LSCall`) with a caller correlation tag.
+    pub fn subscribe(&self, uri: &str, payload: &str, tag: u64) -> Result<(), String> {
         self.enqueue(BusOp::Call {
             uri: uri.to_string(),
             payload: payload.to_string(),
             subscribe: true,
+            tag,
         })
+    }
+
+    /// Cancels all active Luna Bus subscriptions cleanly via `LSCallCancel`.
+    pub fn cancel_subscriptions(&self) -> Result<(), String> {
+        self.enqueue(BusOp::CancelSubscriptions)
     }
 
     fn enqueue(&self, op: BusOp) -> Result<(), String> {

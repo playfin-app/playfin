@@ -210,6 +210,10 @@ fn run() -> Result<(), WebosError> {
     let mut fps_frames: u32 = 0;
     let mut dts_toggle = false;
     let mut last_logged_event = String::new();
+    let mut auto_queue: std::collections::VecDeque<u8> =
+        spike_cfg.auto_actions.iter().copied().collect();
+    let auto_every = Duration::from_millis(spike_cfg.auto_interval_ms.unwrap_or(5_000));
+    let mut next_auto = Instant::now() + auto_every;
 
     let max_frames = std::env::var("PLAYFIN_WEBOS_SMOKE_FRAMES")
         .ok()
@@ -227,6 +231,25 @@ fn run() -> Result<(), WebosError> {
         }
 
         starfish.poll_events();
+
+        // Dev automation: press the configured spike buttons without the remote.
+        if !auto_queue.is_empty() && Instant::now() >= next_auto {
+            next_auto = Instant::now() + auto_every;
+            if let Some(step) = auto_queue.pop_front() {
+                eprintln!("[playfin_webos] auto step {step}");
+                match step {
+                    0 => starfish.unload(),
+                    n @ 1..=8 => handle_spike_trigger(
+                        usize::from(n - 1),
+                        &mut app,
+                        &spike_cfg,
+                        &mut starfish,
+                        &mut dts_toggle,
+                    ),
+                    other => eprintln!("[playfin_webos] auto step {other} ignored (use 0-8)"),
+                }
+            }
+        }
 
         while let Some(event) = sdl.poll_event() {
             match event {

@@ -147,6 +147,24 @@ pub fn build_load_payload(
     (effective_uri, body)
 }
 
+/// "ac3 6ch ko" from one `audioTrackInfo` entry (missing fields are skipped).
+fn audio_track_label(track: &Value) -> String {
+    let codec = track.get("codec").and_then(Value::as_str).unwrap_or("?");
+    let mut label = codec.to_string();
+    if let Some(ch) = track.get("channels").and_then(Value::as_u64) {
+        label.push_str(&format!(" {ch}ch"));
+    }
+    if let Some(lang) = track
+        .get("language")
+        .and_then(Value::as_str)
+        .filter(|l| !l.is_empty())
+    {
+        label.push(' ');
+        label.push_str(lang);
+    }
+    label
+}
+
 /// Places the video plane and logs the outcome (the TV log is the only way to see it).
 fn log_place(win: &ExportedVideoWindow, video_w: i32, video_h: i32) {
     match win.place(video_w, video_h) {
@@ -178,6 +196,9 @@ pub struct StarfishController {
     saw_video_info: bool,
     subscribed_media_id: Option<String>,
     pending_audio_track: Option<usize>,
+    pending_seek_ms: Option<u64>,
+    /// "ac3 6ch ko" per audio track, from `audioTrackInfo`.
+    audio_track_labels: Vec<String>,
     pub status: StarfishStatus,
 }
 
@@ -195,6 +216,8 @@ impl StarfishController {
             saw_video_info: false,
             subscribed_media_id: None,
             pending_audio_track: None,
+            pending_seek_ms: None,
+            audio_track_labels: Vec::new(),
             status: StarfishStatus {
                 runtime_probe: probe,
                 playback_state: "Idle".to_string(),
@@ -260,6 +283,12 @@ impl StarfishController {
         self.pending_unload = false;
         self.saw_video_info = false;
         self.pending_audio_track = None;
+        self.pending_seek_ms = None;
+        // A new stream starts on its first audio track (HLS showed 1/1 after an MKV switch).
+        self.status.current_audio_track = 0;
+        self.status.audio_track_count = 0;
+        self.audio_track_labels.clear();
+        self.status.audio_info = "none".to_string();
         self.status.video_info = "none".to_string();
 
         let window_id = self
@@ -309,6 +338,13 @@ impl StarfishController {
         }
     }
 
+    /// Shows the codec/channels/language of the current audio track in `status.audio_info`.
+    fn refresh_audio_info(&mut self) {
+        if let Some(label) = self.audio_track_labels.get(self.status.current_audio_track) {
+            self.status.audio_info = label.clone();
+        }
+    }
+
     pub fn seek_by_ms(&mut self, delta_ms: i64) {
         let Some(id) = self.status.media_id.clone() else {
             self.status.last_event = "No active mediaId".to_string();
@@ -320,6 +356,7 @@ impl StarfishController {
         if let Some(client) = &self.luna {
             let payload = json!({ "mediaId": id, "position": target }).to_string();
             let _ = client.call_once("luna://com.webos.media/seek", &payload, self.load_gen);
+            self.pending_seek_ms = Some(target);
             self.status.last_event = format!("Seek -> {target} ms");
         }
     }
@@ -482,16 +519,25 @@ impl StarfishController {
             }
         }
 
-        if let Some(ai) = val.get("audioInfo").and_then(Value::as_object) {
-            let codec = ai.get("codec").and_then(Value::as_str).unwrap_or("?");
-            let ch = ai.get("channels").and_then(Value::as_u64).unwrap_or(0);
-            self.status.audio_info = format!("{codec} {ch}ch");
+        // `audioInfo` only says which track plays (`track`); codec/channels/language come
+        // from `sourceInfo.programInfo[0].audioTrackInfo[]`, stored in `audio_track_labels`.
+        if let Some(track) = val
+            .get("audioInfo")
+            .and_then(|ai| ai.get("track"))
+            .and_then(Value::as_u64)
+        {
+            self.status.current_audio_track = track as usize;
+            self.refresh_audio_info();
         }
 
         if let Some(si) = val.get("sourceInfo").and_then(Value::as_object)
             && let Some(programs) = si.get("programInfo").and_then(Value::as_array)
             && let Some(p0) = programs.first().and_then(Value::as_object)
         {
+            if let Some(tracks) = p0.get("audioTrackInfo").and_then(Value::as_array) {
+                self.audio_track_labels = tracks.iter().map(audio_track_label).collect();
+                self.refresh_audio_info();
+            }
             if let Some(dur) = p0.get("duration").and_then(Value::as_u64) {
                 self.status.duration_ms = dur;
             }
@@ -526,11 +572,16 @@ impl StarfishController {
             self.status.playback_state = "Paused".to_string();
             self.status.last_event = "paused".to_string();
         } else if val.get("seekDone").is_some() {
+            // `position_ms` still holds the pre-seek time here; the target is what we asked for.
+            if let Some(target) = self.pending_seek_ms.take() {
+                self.status.position_ms = target;
+            }
             self.status.last_event = format!("seekDone @ {} ms", self.status.position_ms);
         } else if val.get("trackSelected").is_some() {
             if let Some(next) = self.pending_audio_track.take() {
                 self.status.current_audio_track = next;
             }
+            self.refresh_audio_info();
             self.status.last_event = "trackSelected".to_string();
         } else if val.get("endOfStream").is_some() {
             self.status.playback_state = "Ended".to_string();
@@ -542,6 +593,18 @@ impl StarfishController {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn audio_track_label_uses_lg_audio_track_info_fields() {
+        // Shape seen on the LG C1 in `sourceInfo.programInfo[0].audioTrackInfo[]`.
+        let full = json!({"codec": "ac3", "channels": 6, "language": "ko", "sampleRate": 48});
+        assert_eq!(audio_track_label(&full), "ac3 6ch ko");
+        assert_eq!(
+            audio_track_label(&json!({"codec": "aac", "language": ""})),
+            "aac"
+        );
+        assert_eq!(audio_track_label(&json!({})), "?");
+    }
 
     #[test]
     fn load_payload_places_token_in_header_or_query_according_to_mode() {

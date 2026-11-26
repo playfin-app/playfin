@@ -37,6 +37,10 @@ pub struct SpikeConfig {
     pub truehd_url: Option<String>,
     pub api_key: Option<String>,
     pub app_id: Option<String>,
+    /// Dev only: spike buttons pressed automatically after launch, one per
+    /// `auto_interval_ms` (1-8 = the on-screen actions, 0 = Back/stop playback).
+    pub auto_actions: Vec<u8>,
+    pub auto_interval_ms: Option<u64>,
 }
 
 impl SpikeConfig {
@@ -52,6 +56,8 @@ impl SpikeConfig {
             truehd_url: Self::non_empty(self.truehd_url),
             api_key: Self::non_empty(self.api_key),
             app_id: Self::non_empty(self.app_id),
+            auto_actions: self.auto_actions,
+            auto_interval_ms: self.auto_interval_ms,
         }
     }
 
